@@ -64,6 +64,20 @@ def _configure_logging() -> tuple[logging.Logger, Path]:
 LOGGER, LOG_FILE_PATH = _configure_logging()
 
 
+def _positive_float(value: str) -> float:
+    """Return a positive float parsed from *value* or raise ``ArgumentTypeError``."""
+
+    try:
+        converted = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "Valor da janela deve ser numérico em segundos."
+        ) from exc
+    if converted <= 0:
+        raise argparse.ArgumentTypeError("Valor da janela deve ser positivo.")
+    return converted
+
+
 def _tokenize_expected_source(text: str) -> list[str]:
     """Split raw text into individual EPC or suffix tokens."""
     tokens: list[str] = []
@@ -329,6 +343,17 @@ def main():
     ap.add_argument("--output", required=True, help="Pasta para salvar resultados")
     ap.add_argument("--layout", required=False, help="Arquivo de layout do pallet (CSV/XLSX/MD)")
     ap.add_argument("--expected", required=False, help="Arquivo ou lista de EPCs/sufixos esperados para uso sem layout")
+    ap.add_argument(
+        "--mode",
+        choices=("structured", "continuous"),
+        help="Força o modo de análise (padrão: estruturado com layout, contínuo sem layout)",
+    )
+    ap.add_argument(
+        "--window",
+        type=_positive_float,
+        default=2.0,
+        help="Janela de tempo em segundos para agrupamento no modo contínuo (default: 2.0)",
+    )
     args = ap.parse_args()
 
     LOGGER.info("Arquivo de log configurado em: %s", LOG_FILE_PATH)
@@ -336,9 +361,35 @@ def main():
     in_dir = Path(args.input)
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    layout_path = Path(args.layout) if args.layout else None
+    window_seconds = float(args.window)
+
+    if args.mode:
+        effective_mode = args.mode
+        LOGGER.info("Modo selecionado via parâmetro: %s", effective_mode)
+    else:
+        effective_mode = "structured" if layout_path else "continuous"
+        LOGGER.info(
+            "Modo não informado explicitamente; inferido como %s com base no layout.",
+            effective_mode,
+        )
+
+    LOGGER.info(
+        "Layout: %s | Lista de EPCs esperados: %s | Janela modo contínuo: %.2f s",
+        layout_path if layout_path else "(não fornecido)",
+        args.expected if args.expected else "(não fornecida)",
+        window_seconds,
+    )
+
     layout_df = None
-    if args.layout:
-        layout_df = read_layout(args.layout)
+    if layout_path and effective_mode == "structured":
+        layout_df = read_layout(str(layout_path))
+    elif layout_path and effective_mode == "continuous":
+        LOGGER.warning(
+            "Layout fornecido (%s) não será utilizado no modo contínuo.",
+            layout_path,
+        )
     try:
         expected_registry = load_expected_tokens(args.expected)
     except Exception as exc:
@@ -350,11 +401,31 @@ def main():
         LOGGER.error("Nenhum CSV encontrado em %s", in_dir)
         sys.exit(1)
 
-    results = []
-    for f in csv_files:
-        LOGGER.info("Processando %s ...", f.name)
-        res = process_file(f, out_dir, layout_df, expected_registry=expected_registry)
-        results.append(res)
+    results: list[Path] = []
+    if effective_mode == "continuous":
+        try:
+            from .continuous_mode import run_continuous_mode
+        except ImportError as exc:  # pragma: no cover - continuous module will be provided later
+            LOGGER.error("Rotina do modo contínuo indisponível: %s", exc)
+            sys.exit(1)
+        try:
+            run_results = run_continuous_mode(
+                csv_files=csv_files,
+                output_dir=out_dir,
+                window_seconds=window_seconds,
+                expected_registry=expected_registry,
+                logger=LOGGER,
+            )
+        except Exception as exc:  # pragma: no cover - propagate rich error details
+            LOGGER.exception("Falha ao executar processamento contínuo: %s", exc)
+            sys.exit(1)
+        if run_results:
+            results.extend(Path(r) for r in run_results)
+    else:
+        for f in csv_files:
+            LOGGER.info("Processando %s ...", f.name)
+            res = process_file(f, out_dir, layout_df, expected_registry=expected_registry)
+            results.append(res)
     LOGGER.info("Concluído. Arquivos gerados:")
     for r in results:
         LOGGER.info(" - %s", r)
