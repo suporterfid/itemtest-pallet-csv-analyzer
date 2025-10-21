@@ -23,7 +23,12 @@ if __package__ in (None, ""):
     __package__ = package_path.name
 
 from .parser import read_itemtest_csv
-from .metrics import summarize_by_epc, summarize_by_antenna, compile_structured_kpis
+from .metrics import (
+    summarize_by_epc,
+    summarize_by_antenna,
+    compile_structured_kpis,
+    compile_global_rssi_metrics,
+)
 from .plots import (
     plot_reads_by_epc,
     plot_reads_by_antenna,
@@ -240,6 +245,9 @@ SUMMARY_COLUMN_ORDER = [
     "congestion_index",
     "global_rssi_avg",
     "global_rssi_std",
+    "rssi_noise_flag",
+    "rssi_noise_indicator",
+    "rssi_noise_reads_per_epc",
     "alerts_count",
     "analysis_window_seconds",
     "layout_total_positions",
@@ -321,6 +329,13 @@ def _register_structured_summary(
     record["tag_read_redundancy"] = _clean_float(metrics.get("tag_read_redundancy"))
     record["antenna_balance"] = _clean_float(metrics.get("antenna_balance"))
     record["rssi_stability_index"] = _clean_float(metrics.get("rssi_stability_index"))
+    record["global_rssi_avg"] = _clean_float(metrics.get("global_rssi_avg"))
+    record["global_rssi_std"] = _clean_float(metrics.get("global_rssi_std"))
+    record["rssi_noise_flag"] = metrics.get("rssi_noise_flag")
+    record["rssi_noise_indicator"] = metrics.get("rssi_noise_indicator")
+    record["rssi_noise_reads_per_epc"] = _clean_float(
+        metrics.get("rssi_noise_reads_per_epc")
+    )
     record["layout_total_positions"] = _clean_int(metrics.get("layout_total_positions"))
     record["layout_read_positions"] = _clean_int(metrics.get("layout_read_positions"))
     record["layout_overall_coverage"] = _clean_float(metrics.get("layout_overall_coverage"))
@@ -401,6 +416,11 @@ def _register_continuous_summary(
     record["congestion_index"] = _clean_float(continuous_details.get("congestion_index"))
     record["global_rssi_avg"] = _clean_float(continuous_details.get("global_rssi_avg"))
     record["global_rssi_std"] = _clean_float(continuous_details.get("global_rssi_std"))
+    record["rssi_noise_flag"] = continuous_details.get("rssi_noise_flag")
+    record["rssi_noise_indicator"] = continuous_details.get("rssi_noise_indicator")
+    record["rssi_noise_reads_per_epc"] = _clean_float(
+        continuous_details.get("rssi_noise_reads_per_epc")
+    )
     record["alerts_count"] = len(alerts or [])
     record["epcs_per_minute_mean"] = _clean_float(continuous_details.get("epcs_per_minute_mean"))
     record["epcs_per_minute_peak"] = _clean_int(continuous_details.get("epcs_per_minute_peak"))
@@ -543,6 +563,11 @@ def generate_consolidated_summary(
     if "layout_used" in per_file_df.columns:
         per_file_df["layout_used"] = per_file_df["layout_used"].fillna(False).astype(bool)
 
+    if "rssi_noise_flag" in per_file_df.columns:
+        per_file_df["rssi_noise_flag"] = per_file_df["rssi_noise_flag"].apply(
+            lambda value: None if pd.isna(value) else bool(value)
+        )
+
     float_candidates = [
         "coverage_rate",
         "tag_read_redundancy",
@@ -564,6 +589,7 @@ def generate_consolidated_summary(
         "congestion_index",
         "global_rssi_avg",
         "global_rssi_std",
+        "rssi_noise_reads_per_epc",
     ]
     for column in float_candidates:
         if column in per_file_df.columns:
@@ -777,6 +803,8 @@ def process_continuous_file(
     summary["epc_status"] = summary["expected_epc"].map({True: "Expected", False: "Unexpected"})
     unexpected = summary.loc[~mask_expected].copy()
 
+    global_rssi_metrics = compile_global_rssi_metrics(df, summary)
+
     dominant_antenna = None
     if ant_counts is not None and not ant_counts.empty:
         try:
@@ -829,6 +857,7 @@ def process_continuous_file(
         "concurrency_average": result.concurrency_average,
         "concurrency_timeline": result.concurrency_timeline,
     }
+    continuous_details.update(global_rssi_metrics)
     if peak_value is not None:
         continuous_details["epcs_per_minute_peak"] = peak_value
     if peak_time is not None:

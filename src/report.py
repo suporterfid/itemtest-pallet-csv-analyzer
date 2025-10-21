@@ -186,6 +186,18 @@ def write_excel(
         formatted = formatter(value) if formatter else value
         executive_rows.append({"Indicator": label, "Value": formatted})
 
+    def _first_available(key: str) -> object:
+        for source in (metrics_info, structured_info):
+            if not source:
+                continue
+            value = source.get(key)
+            if value is None:
+                continue
+            if isinstance(value, float) and pd.isna(value):
+                continue
+            return value
+        return None
+
     def _format_peak_with_timestamp(
         value: object, timestamp: object
     ) -> str | int | None:
@@ -333,16 +345,23 @@ def write_excel(
             dominant_display = dominant_exec
         executive_rows.append({"Indicator": "Dominant antenna", "Value": dominant_display})
 
+    global_rssi_avg_value = _first_available("global_rssi_avg")
     _append_executive(
         "Global RSSI mean (dBm)",
-        metrics_info.get("global_rssi_avg"),
+        global_rssi_avg_value,
         lambda value: round(float(value), 2),
     )
+    global_rssi_std_value = _first_available("global_rssi_std")
     _append_executive(
         "Global RSSI std (dBm)",
-        metrics_info.get("global_rssi_std"),
+        global_rssi_std_value,
         lambda value: round(float(value), 2),
     )
+    noise_indicator_exec = _first_available("rssi_noise_indicator")
+    if noise_indicator_exec:
+        executive_rows.append(
+            {"Indicator": "RSSI noise indicator", "Value": noise_indicator_exec}
+        )
 
     coverage_rate = structured_info.get("coverage_rate")
     if coverage_rate is not None and not pd.isna(coverage_rate):
@@ -440,6 +459,31 @@ def write_excel(
                 {
                     "Metric": "RSSI stability index (σ)",
                     "Value": f"{float(rssi_stability):.2f} dBm",
+                }
+            )
+
+        global_rssi_avg_structured = structured_info.get("global_rssi_avg")
+        if global_rssi_avg_structured is not None and not pd.isna(global_rssi_avg_structured):
+            structured_rows.append(
+                {
+                    "Metric": "Global RSSI mean (dBm)",
+                    "Value": f"{float(global_rssi_avg_structured):.2f} dBm",
+                }
+            )
+        global_rssi_std_structured = structured_info.get("global_rssi_std")
+        if global_rssi_std_structured is not None and not pd.isna(global_rssi_std_structured):
+            structured_rows.append(
+                {
+                    "Metric": "Global RSSI std (dBm)",
+                    "Value": f"{float(global_rssi_std_structured):.2f} dBm",
+                }
+            )
+        noise_indicator_structured = structured_info.get("rssi_noise_indicator")
+        if noise_indicator_structured:
+            structured_rows.append(
+                {
+                    "Metric": "RSSI noise indicator",
+                    "Value": noise_indicator_structured,
                 }
             )
 
@@ -887,6 +931,21 @@ def write_excel(
             metrics_info.get("global_rssi_std"),
             lambda value: round(float(value), 2),
         )
+        noise_indicator_metric = metrics_info.get("rssi_noise_indicator")
+        if noise_indicator_metric:
+            metrics_rows.append(
+                {
+                    "Metric": "RSSI noise indicator",
+                    "Value": noise_indicator_metric,
+                }
+            )
+        elif metrics_info:
+            metrics_rows.append(
+                {
+                    "Metric": "RSSI noise indicator",
+                    "Value": "N/A",
+                }
+            )
 
         alerts_lines = _build_alert_lines()
 
