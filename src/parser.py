@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+
 import re, io
 from pathlib import Path
 import pandas as pd
