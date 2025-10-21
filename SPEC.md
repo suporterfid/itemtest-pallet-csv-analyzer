@@ -273,4 +273,3 @@ Se habilitado:
 
 ---
 
-Quer que eu adicione uma **tabela de KPIs executivos padrão** (com nomes amigáveis e descrições breves para exportar direto ao Power BI)? Isso tornaria o relatório automático já pronto para o cliente visualizar indicadores de eficiência operacional.
