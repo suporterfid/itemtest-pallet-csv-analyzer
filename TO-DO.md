@@ -12,7 +12,7 @@
 | 06 | Implement summary PDF generation | 🧩 Medium | AI Agent | Use reportlab or matplotlib to create executive report |
 | 07 | Add logging with timestamps and error capture | 🧩 Medium | Developer | Write logs in `/output/logs` |
 | 08 | Enhance CLI with `--merge` option | 🧩 Medium | Developer | Merge multiple test summaries into one Excel |
-| 09 | Improve metadata parsing robustness | ⚙️ Low | Developer | Handle different line order or spacing in header |
+| 09 | Improve metadata parsing robustness | ✅ Done | Developer | Completed: parser now normalizes composite header metadata fields |
 | 10 | Unit tests for all core modules | ⚙️ Low | Developer | Use pytest with sample data |
 
 ---

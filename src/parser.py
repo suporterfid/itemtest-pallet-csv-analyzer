@@ -13,25 +13,88 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
     """
     raw_lines = Path(path).read_text(encoding="utf-8", errors="ignore").splitlines()
     header_idx = None
-    meta_lines = []
+    meta_lines: list[str] = []
     for i, line in enumerate(raw_lines):
-        if line.strip().startswith("//"):
-            meta_lines.append(line.strip()[2:].strip())
-            if "Timestamp" in line and "EPC" in line and "Antenna" in line:
-                header_idx = i
-                break
+        stripped = line.strip()
+        is_comment = stripped.startswith("//")
+        content = stripped[2:].strip() if is_comment else stripped
+        if is_comment or ("=" in content and header_idx is None):
+            if content:
+                meta_lines.append(content)
+        if "Timestamp" in content and "EPC" in content and "Antenna" in content:
+            header_idx = i
+            break
     if header_idx is None:
         raise RuntimeError(f"Não foi possível localizar o cabeçalho de dados em {path}")
     # parse metadata key=value from meta_lines except the last header line
-    metadata = {}
-    for ml in meta_lines[:-1] if len(meta_lines) > 1 else meta_lines:
-        parts = [p.strip() for p in ml.split(",") if p.strip()]
-        for token in parts:
+    if meta_lines and "Timestamp" in meta_lines[-1] and "EPC" in meta_lines[-1]:
+        meta_lines = meta_lines[:-1]
+
+    parsed_pairs: dict[str, str] = {}
+    for ml in meta_lines:
+        if not ml:
+            continue
+        tokens = [token.strip() for token in ml.split(",") if token.strip()]
+        current_key: str | None = None
+        current_parts: list[str] = []
+        for token in tokens:
             if "=" in token:
-                k, v = token.split("=", 1)
-                metadata[k.strip()] = v.strip()
-            else:
-                metadata[token] = True
+                key_candidate, value_part = token.split("=", 1)
+                normalized_key = key_candidate.strip()
+                if normalized_key and any(ch.isalpha() for ch in normalized_key):
+                    if current_key is not None:
+                        parsed_pairs[current_key] = ",".join(part for part in current_parts if part)
+                    current_key = normalized_key
+                    current_parts = [value_part.strip()]
+                    continue
+            if current_key is not None:
+                current_parts.append(token)
+        if current_key is not None:
+            parsed_pairs[current_key] = ",".join(part for part in current_parts if part)
+            current_key = None
+
+    metadata: dict[str, object] = {k: v for k, v in parsed_pairs.items()}
+
+    if "AntennaIDs" in parsed_pairs:
+        antennas = [int(match) for match in re.findall(r"-?\d+", parsed_pairs["AntennaIDs"])]
+        metadata["AntennaIDs"] = antennas
+
+    if "ModeIndex" in parsed_pairs:
+        mode_value = parsed_pairs["ModeIndex"].strip()
+        try:
+            metadata["ModeIndex"] = int(mode_value)
+        except ValueError:
+            metadata["ModeIndex"] = mode_value
+
+    if "Session" in parsed_pairs:
+        session_value = parsed_pairs["Session"].strip()
+        try:
+            metadata["Session"] = int(session_value)
+        except ValueError:
+            metadata["Session"] = session_value
+
+    if "InventoryMode" in parsed_pairs:
+        metadata["InventoryMode"] = parsed_pairs["InventoryMode"].strip()
+
+    if "Hostname" in parsed_pairs:
+        metadata["Hostname"] = parsed_pairs["Hostname"].strip()
+
+    if "PowersInDbm" in parsed_pairs:
+        power_pairs: dict[int, float] = {}
+        power_pattern = re.compile(
+            r"(-?\d+)\s*=>\s*([-+]?\d+(?:[.,]\d+)?)(?=(?:\s*,\s*-?\d+\s*=>)|$)"
+        )
+        for ant, power in power_pattern.findall(parsed_pairs["PowersInDbm"]):
+            try:
+                antenna_id = int(ant)
+                power_value = float(power.replace(",", "."))
+            except ValueError:
+                continue
+            power_pairs[antenna_id] = power_value
+        if power_pairs:
+            metadata["PowersInDbm"] = power_pairs
+        else:
+            metadata["PowersInDbm"] = parsed_pairs["PowersInDbm"].strip()
 
     # build CSV string removing the '//' of header
     csv_str = "\n".join(raw_lines[header_idx:])
