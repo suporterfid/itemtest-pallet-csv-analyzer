@@ -19,7 +19,7 @@ if __package__ in (None, ""):
     __package__ = package_path.name
 
 from .parser import read_itemtest_csv
-from .metrics import summarize_by_epc, summarize_by_antenna
+from .metrics import summarize_by_epc, summarize_by_antenna, compile_structured_kpis
 from .plots import (
     plot_reads_by_epc,
     plot_reads_by_antenna,
@@ -190,6 +190,15 @@ def process_file(
     summary["epc_status"] = summary["expected_epc"].map({True: "Expected", False: "Unexpected"})
     unexpected = summary[~mask_expected].copy()
 
+    structured_metrics = compile_structured_kpis(
+        summary,
+        df,
+        ant_counts,
+        expected_full=expected_full,
+        expected_suffixes=expected_suffixes,
+        positions_df=positions_df,
+    )
+
     summary_text = compose_summary_text(
         csv_path,
         metadata,
@@ -197,6 +206,7 @@ def process_file(
         ant_counts,
         positions_df,
         analysis_mode="structured",
+        structured_metrics=structured_metrics,
     )
     LOGGER.info("\n%s", summary_text)
 
@@ -222,7 +232,15 @@ def process_file(
     LOGGER.info("Gráficos salvos em: %s", figures_dir)
 
     excel_out = out_dir / f"{csv_path.stem}_result.xlsx"
-    write_excel(str(excel_out), summary, unexpected, ant_counts, metadata, positions_df=positions_df)
+    write_excel(
+        str(excel_out),
+        summary,
+        unexpected,
+        ant_counts,
+        metadata,
+        positions_df=positions_df,
+        structured_metrics=structured_metrics,
+    )
     return excel_out
 
 
@@ -410,6 +428,7 @@ def process_continuous_file(
         ant_counts,
         metadata,
         positions_df=None,
+        structured_metrics=None,
         continuous_timeline=timeline_excel,
         continuous_metrics=continuous_details,
         continuous_epcs_per_minute=result.epcs_per_minute,

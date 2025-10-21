@@ -55,9 +55,11 @@ def compose_summary_text(
     *,
     analysis_mode: str = "structured",
     continuous_details: dict | None = None,
+    structured_metrics: dict | None = None,
 ) -> str:
     """Compose a human-readable summary with optional continuous-mode insights."""
 
+    structured_info = structured_metrics or {}
     total_epcs = int(summary.shape[0]) if summary is not None else 0
     total_reads = int(summary["total_reads"].sum()) if not summary.empty else 0
 
@@ -140,6 +142,68 @@ def compose_summary_text(
         general_lines.append(f"- First read recorded at {first_seen}")
     elif last_seen:
         general_lines.append(f"- Last read recorded at {last_seen}")
+
+    structured_lines: list[str] = []
+    if analysis_mode != "continuous" and structured_info:
+        coverage = structured_info.get("coverage_rate")
+        expected_total = structured_info.get("expected_total")
+        expected_found = structured_info.get("expected_found")
+        if coverage is not None and not pd.isna(coverage):
+            coverage_line = f"- Coverage rate: {float(coverage):.1f}%"
+            if expected_total and expected_found is not None:
+                coverage_line += (
+                    f" ({int(expected_found)}/{int(expected_total)} expected tags read)"
+                )
+            structured_lines.append(coverage_line)
+        else:
+            structured_lines.append("- Coverage rate: not available")
+
+        redundancy = structured_info.get("tag_read_redundancy")
+        if redundancy is not None and not pd.isna(redundancy):
+            structured_lines.append(
+                f"- Tag read redundancy: {float(redundancy):.2f}× reads per tag"
+            )
+
+        balance = structured_info.get("antenna_balance")
+        if balance is not None and not pd.isna(balance):
+            structured_lines.append(
+                f"- Antenna balance (σ): {float(balance):.2f}%"
+            )
+
+        rssi_stability = structured_info.get("rssi_stability_index")
+        if rssi_stability is not None and not pd.isna(rssi_stability):
+            structured_lines.append(
+                f"- RSSI stability index (σ): {float(rssi_stability):.2f} dBm"
+            )
+
+        top_performer = structured_info.get("top_performer_antenna") or {}
+        performer_value = None
+        if isinstance(top_performer, dict):
+            performer_value = top_performer.get("antenna")
+        if performer_value is not None and str(performer_value) != "":
+            performer_label = f"{performer_value}"
+            participation = None
+            if isinstance(top_performer, dict):
+                participation = top_performer.get("participation_pct")
+            if participation is not None and not pd.isna(participation):
+                performer_label += f" ({float(participation):.1f}% of reads)"
+            structured_lines.append(f"- Top performer antenna: {performer_label}")
+
+        missing_full = structured_info.get("missing_expected_full") or []
+        missing_suffix = structured_info.get("missing_expected_suffix") or []
+        combined_missing = [
+            str(item)
+            for item in list(missing_full) + list(missing_suffix)
+            if str(item)
+        ]
+        if combined_missing:
+            sample = ", ".join(combined_missing[:5])
+            suffix = " ..." if len(combined_missing) > 5 else ""
+            structured_lines.append(
+                f"- Missing expected tags: {len(combined_missing)} ({sample}{suffix})"
+            )
+        elif structured_lines:
+            structured_lines.append("- Missing expected tags: none")
 
     continuous_lines: list[str] = []
     if analysis_mode == "continuous":
@@ -231,29 +295,35 @@ def compose_summary_text(
     elif positions_df.empty:
         layout_lines.append("- Layout provided but no positions defined.")
     else:
-        total_positions = int(len(positions_df))
-        read_positions = int(positions_df["Read"].sum())
-        coverage_pct = (read_positions / total_positions * 100) if total_positions else 0.0
+        total_positions = structured_info.get("layout_total_positions")
+        if total_positions is None:
+            total_positions = int(len(positions_df))
+        read_positions = structured_info.get("layout_read_positions")
+        if read_positions is None:
+            read_positions = int(positions_df["Read"].sum())
+        coverage_pct = structured_info.get("layout_overall_coverage")
+        if coverage_pct is None or pd.isna(coverage_pct):
+            coverage_pct = (read_positions / total_positions * 100) if total_positions else 0.0
         layout_lines.append(
             f"- Layout coverage: {read_positions} of {total_positions} positions ({coverage_pct:.1f}%)"
         )
-        missing = positions_df[~positions_df["Read"]]
-        if not missing.empty:
-            missing_records = missing[["Face", ROW_COLUMN, "Suffix"]].drop_duplicates()
-            descriptors: list[str] = []
-            for row in missing_records.itertuples(index=False):
-                face = getattr(row, "Face")
-                row_label = getattr(row, ROW_COLUMN)
-                suffix = getattr(row, "Suffix")
-                descriptors.append(f"{face} - Row {row_label} ({suffix})")
-                if len(descriptors) == 5:
-                    break
-            extra = " ..." if len(missing_records) > 5 else ""
+        face_coverage_df = structured_info.get("layout_face_coverage")
+        if isinstance(face_coverage_df, pd.DataFrame) and not face_coverage_df.empty:
+            layout_lines.append("- Face coverage breakdown:")
+            for row in face_coverage_df.itertuples(index=False):
+                face = getattr(row, "Face", "?")
+                read_pos = getattr(row, "read_positions", 0)
+                total_pos = getattr(row, "total_positions", 0)
+                pct = getattr(row, "coverage_pct", 0.0)
+                layout_lines.append(
+                    f"  - {face}: {int(read_pos)} of {int(total_pos)} positions ({float(pct):.1f}%)"
+                )
+        missing_labels = structured_info.get("missing_position_labels") or []
+        if missing_labels:
+            sample = "; ".join(missing_labels[:5])
+            suffix = " ..." if len(missing_labels) > 5 else ""
             layout_lines.append(
-                "- Positions without reads ("
-                + f"{len(missing_records)}): "
-                + "; ".join(descriptors)
-                + extra
+                f"- Positions without reads ({len(missing_labels)}): {sample}{suffix}"
             )
         else:
             layout_lines.append("- All layout positions were covered by reads.")
@@ -262,6 +332,8 @@ def compose_summary_text(
         ("Key metadata", metadata_lines),
         ("General indicators", general_lines),
     ]
+    if structured_lines:
+        sections.append(("Structured mode indicators", structured_lines))
     if analysis_mode == "continuous":
         if not continuous_lines:
             continuous_lines = ["- No additional indicators available."]

@@ -20,6 +20,7 @@
 | 14 | Garantir execução do CLI como módulo ou script | ✅ Done | Developer | Ajustado bootstrap em `itemtest_analyzer.py` para configurar `sys.path` automaticamente |
 | 15 | Corrigir parser para CSV com `;` e decimal `,` | ✅ Done | AI Agent | Parser ajustado e teste de regressão cobrindo EPCs e métricas |
 | 16 | Garantir fallback de Hostname no parser | ✅ Done | AI Agent | Hostname passa a usar `ReaderName` ou dados da coluna para alimentar relatórios |
+| 17 | Expand structured-mode KPIs in metrics/report | ✅ Done | AI Agent | Coverage, redundancy, balance, and RSSI stability surfaced in summaries and new `Structured_KPIs` sheet |
 
 ---
 

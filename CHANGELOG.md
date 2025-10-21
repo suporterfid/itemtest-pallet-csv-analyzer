@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### ✨ Features
+- Implemented structured-mode KPI calculations (coverage rate, antenna balance, RSSI stability, redundancy) and exposed them in the `Structured_KPIs` worksheet and textual summaries.
 - Added the `participation_pct` percentage column to the antenna summary, exposing how much each antenna contributes to the total number of reads.
 - Introduced configurable expected EPC/suffix lists (via `--expected`) to classify records without a pallet layout, flagging each EPC as `Esperado` or `Inesperado` and always generating the `EPCs_inesperados` worksheet.
 - Generated a structured textual summary combining metadata, per-antenna statistics, and layout coverage, registrando-o nos arquivos de log sob `output/logs/` para cada CSV processado.

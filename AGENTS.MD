@@ -150,6 +150,12 @@ When `--mode continuous` or no layout is provided:
 | `Indicadores_Executivos` | Key performance indicators (aggregated)         |
 | `Metadata`               | Reader configuration and session info           |
 | `Posicoes_Pallet`        | Physical coverage (structured mode only)        |
+| `Structured_KPIs`        | Coverage, redundancy, balance, and RSSI KPIs    |
+
+Structured-mode analytics should rely on the pure helper functions in
+`metrics.py` (e.g., `compile_structured_kpis`) so coverage percentages,
+antenna balance, and redundancy stay consistent across the CLI, reports,
+and automated summaries.
 
 ### Charts
 
