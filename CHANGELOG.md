@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### ✨ Features
+- Introduced a `--summary` CLI flag that aggregates per-file KPIs into an
+  `executive_summary.xlsx` workbook for quick executive reviews of batch
+  processing runs.
 - Standardized the Excel report structure to use the mandated Portuguese sheet
   names (`Resumo_por_EPC`, `Leituras_por_Antena`, `Fluxo_Contínuo`,
   `Indicadores_Executivos`, `Metadata`, `Posicoes_Pallet`, and `EPCs_inesperados`)

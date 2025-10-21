@@ -63,7 +63,7 @@ AI agents collaborating on this repository may:
 * Parameters:
 
   ```bash
-  python src/itemtest_analyzer.py --input <input_dir> --output <output_dir> [--layout <layout_file>] [--mode <structured|continuous>] [--window <seconds>]
+  python src/itemtest_analyzer.py --input <input_dir> --output <output_dir> [--layout <layout_file>] [--mode <structured|continuous>] [--window <seconds>] [--expected <tokens_or_file>] [--summary]
   ```
 * Windows 11 compatibility (UTF-8, spaces in paths)
 * Backward compatibility with Impinj ItemTest CSV format
