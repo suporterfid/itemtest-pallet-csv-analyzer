@@ -5,7 +5,8 @@
 ### ✨ Features
 - Added the `participation_pct` percentage column to the antenna summary, exposing how much each antenna contributes to the total number of reads.
 - Introduced configurable expected EPC/suffix lists (via `--expected`) to classify records without a pallet layout, flagging each EPC as `Esperado` or `Inesperado` and always generating the `EPCs_inesperados` worksheet.
-- Generated a structured textual summary combining metadata, per-antenna statistics, and layout coverage, printing it to the console and storing it under `output/logs/` for each processed CSV.
+- Generated a structured textual summary combining metadata, per-antenna statistics, and layout coverage, registrando-o nos arquivos de log sob `output/logs/` para cada CSV processado.
+- Configured centralized logging for the CLI to persist INFO/ERROR entries in `output/logs/<data>_analisar_itemtest.log` while mirroring messages to the console.
 
 ## v0.1 — First AI-generated Release (2025-10-21)
 
