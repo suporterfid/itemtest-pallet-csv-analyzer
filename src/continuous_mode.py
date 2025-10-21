@@ -129,11 +129,15 @@ def analyze_continuous_flow(
         ).dt.total_seconds()
         interval_read_counts = interval_groups.size()
 
-        antenna_series = (
-            pd.to_numeric(sorted_group["Antenna"], errors="coerce")
-            .dropna()
-            .astype(int, copy=False)
-        )
+        antenna_numeric = pd.to_numeric(sorted_group["Antenna"], errors="coerce")
+        invalid_antenna_count = int(antenna_numeric.isna().sum())
+        if invalid_antenna_count:
+            LOGGER.debug(
+                "EPC %s has %s reads with invalid antenna IDs removed from distribution.",
+                epc,
+                invalid_antenna_count,
+            )
+        antenna_series = antenna_numeric.dropna().astype(int, copy=False)
         per_epc_antennas[epc] = set(antenna_series.tolist())
 
         antenna_distribution = (
@@ -188,7 +192,16 @@ def analyze_continuous_flow(
         )
 
     per_epc_summary = pd.DataFrame(per_epc_records)
+    if not per_epc_summary.empty:
+        per_epc_summary = per_epc_summary.sort_values(
+            by=["first_time", "EPC"], na_position="last"
+        ).reset_index(drop=True)
+
     epc_timeline = pd.DataFrame(timeline_records)
+    if not epc_timeline.empty:
+        epc_timeline = epc_timeline.sort_values(
+            by=["entry_time", "EPC", "event_index"]
+        ).reset_index(drop=True)
 
     epcs_per_minute = (
         working.assign(_minute=working["Timestamp"].dt.floor("T"))
