@@ -15,8 +15,10 @@ def write_excel(
     out.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
         summary_epc.to_excel(writer, index=False, sheet_name="Resumo_por_EPC")
-        if unexpected is not None and not unexpected.empty:
-            unexpected.to_excel(writer, index=False, sheet_name="EPCs_inesperados")
+        unexpected_df = unexpected
+        if unexpected_df is None:
+            unexpected_df = pd.DataFrame(columns=summary_epc.columns)
+        unexpected_df.to_excel(writer, index=False, sheet_name="EPCs_inesperados")
         ant_counts.to_excel(writer, index=False, sheet_name="Leituras_por_Antena")
         if positions_df is not None:
             positions_df.to_excel(writer, index=False, sheet_name="Posicoes_Pallet")
