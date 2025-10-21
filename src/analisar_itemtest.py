@@ -20,9 +20,16 @@ if __package__ in (None, ""):
 
 from .parser import read_itemtest_csv
 from .metrics import summarize_by_epc, summarize_by_antenna
-from .plots import plot_reads_by_epc, plot_reads_by_antenna, boxplot_rssi_by_antenna
+from .plots import (
+    plot_reads_by_epc,
+    plot_reads_by_antenna,
+    boxplot_rssi_by_antenna,
+    plot_active_epcs_over_time,
+    plot_antenna_heatmap,
+)
 from .report import write_excel
 from .pallet_layout import read_layout, build_expected_sets, map_position_by_suffix
+from .continuous_mode import analyze_continuous_flow
 
 HEX_EPC_PATTERN = re.compile(r"^[0-9A-F]{24,}$", re.IGNORECASE)
 
@@ -118,14 +125,51 @@ def load_expected_tokens(source: str | None) -> dict[str, set[str]]:
         tokens = _tokenize_expected_source(source)
     return _build_expected_sets(tokens)
 
+
+def _build_continuous_alerts(
+    anomalous_epcs: Iterable[str] | None,
+    inconsistency_flags: dict[str, Iterable[str]] | None,
+) -> list[str]:
+    """Return formatted alert strings for continuous-mode findings."""
+
+    alerts: list[str] = []
+    if anomalous_epcs:
+        anomalous_list = [str(epc) for epc in anomalous_epcs if epc]
+        if anomalous_list:
+            sample = ", ".join(anomalous_list[:5])
+            suffix = " ..." if len(anomalous_list) > 5 else ""
+            alerts.append(
+                f"EPCs com permanência atípica ({len(anomalous_list)}): {sample}{suffix}"
+            )
+
+    flag_labels = {
+        "epcs_only_top_antennas": "EPCs concentrados apenas em antenas superiores",
+        "epcs_sem_antena": "EPCs sem antena identificada",
+    }
+    for key, values in (inconsistency_flags or {}).items():
+        if not values:
+            continue
+        formatted_values = [str(value) for value in values if value]
+        if not formatted_values:
+            continue
+        sample = ", ".join(formatted_values[:5])
+        suffix = " ..." if len(formatted_values) > 5 else ""
+        label = flag_labels.get(key, str(key))
+        alerts.append(f"{label} ({len(formatted_values)}): {sample}{suffix}")
+
+    return alerts
+
 def compose_summary_text(
     csv_path: Path,
     metadata: dict,
     summary: pd.DataFrame,
     ant_counts: pd.DataFrame,
     positions_df: pd.DataFrame | None,
+    *,
+    analysis_mode: str = "structured",
+    continuous_details: dict | None = None,
 ) -> str:
-    """Compose a human-readable summary mixing metadata, antenna stats and layout coverage."""
+    """Compose a human-readable summary with optional continuous-mode insights."""
 
     total_epcs = int(summary.shape[0]) if summary is not None else 0
     total_reads = int(summary["total_reads"].sum()) if not summary.empty else 0
@@ -149,12 +193,19 @@ def compose_summary_text(
             if ts.tzinfo is not None:
                 ts = ts.tz_convert("UTC").tz_localize(None)
         except (TypeError, AttributeError):
-            # already naive or conversion not supported
             pass
         return ts.strftime("%Y-%m-%d %H:%M:%S")
 
-    first_seen = _format_timestamp(summary["first_time"].min()) if "first_time" in summary.columns else None
-    last_seen = _format_timestamp(summary["last_time"].max()) if "last_time" in summary.columns else None
+    first_seen = (
+        _format_timestamp(summary["first_time"].min())
+        if "first_time" in summary.columns
+        else None
+    )
+    last_seen = (
+        _format_timestamp(summary["last_time"].max())
+        if "last_time" in summary.columns
+        else None
+    )
 
     metadata_lines: list[str] = []
     hostname = metadata.get("Hostname")
@@ -187,7 +238,8 @@ def compose_summary_text(
     if not metadata_lines:
         metadata_lines.append("- Nenhum metadado relevante encontrado.")
 
-    general_lines: list[str] = []
+    mode_label = "Contínuo" if analysis_mode == "continuous" else "Estruturado"
+    general_lines: list[str] = [f"- Modo de análise: {mode_label}"]
     if expected_count is not None and unexpected_count is not None:
         general_lines.append(
             f"- EPCs únicos: {total_epcs} (esperados: {expected_count}, inesperados: {unexpected_count})"
@@ -201,6 +253,58 @@ def compose_summary_text(
         general_lines.append(f"- Primeira leitura registrada em {first_seen}")
     elif last_seen:
         general_lines.append(f"- Última leitura registrada em {last_seen}")
+
+    continuous_lines: list[str] = []
+    if analysis_mode == "continuous":
+        details = continuous_details or {}
+        average_dwell = details.get("average_dwell_seconds")
+        if average_dwell is not None and not pd.isna(average_dwell):
+            continuous_lines.append(
+                f"- Tempo médio de permanência: {float(average_dwell):.2f} s"
+            )
+        total_events = details.get("total_events")
+        if total_events is not None and not pd.isna(total_events):
+            continuous_lines.append(
+                f"- Eventos de entrada/saída detectados: {int(total_events)}"
+            )
+        dominant = details.get("dominant_antenna")
+        if dominant is not None and not (
+            isinstance(dominant, float) and pd.isna(dominant)
+        ) and str(dominant) != "":
+            try:
+                dom_display = int(dominant)
+            except (TypeError, ValueError):
+                dom_display = dominant
+            continuous_lines.append(f"- Antena dominante: {dom_display}")
+        peak_value = details.get("epcs_per_minute_peak")
+        if peak_value is not None and not pd.isna(peak_value):
+            peak_time = details.get("epcs_per_minute_peak_time")
+            if peak_time is not None:
+                try:
+                    peak_ts = pd.to_datetime(peak_time)
+                    if pd.isna(peak_ts):
+                        raise ValueError
+                    peak_label = peak_ts.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    peak_label = str(peak_time)
+                peak_repr = f"{int(peak_value)} às {peak_label}"
+            else:
+                peak_repr = str(int(peak_value))
+            continuous_lines.append(
+                f"- Pico de EPCs ativos/min: {peak_repr}"
+            )
+        alerts = details.get("alerts")
+        if alerts is None:
+            alerts = _build_continuous_alerts(
+                details.get("anomalous_epcs"),
+                details.get("inconsistency_flags"),
+            )
+        alerts = [alert for alert in alerts if alert]
+        if alerts:
+            for alert in alerts:
+                continuous_lines.append(f"- Alerta: {alert}")
+        else:
+            continuous_lines.append("- Nenhum alerta identificado no modo contínuo.")
 
     antenna_lines: list[str] = []
     if ant_counts is not None and not ant_counts.empty:
@@ -232,10 +336,7 @@ def compose_summary_text(
         )
         missing = positions_df[~positions_df["Lido"]]
         if not missing.empty:
-            missing_records = (
-                missing[["Face", "Linha", "Sufixo"]]
-                .drop_duplicates()
-            )
+            missing_records = missing[["Face", "Linha", "Sufixo"]].drop_duplicates()
             descriptors: list[str] = []
             for row in missing_records.itertuples(index=False):
                 face = getattr(row, "Face")
@@ -254,9 +355,17 @@ def compose_summary_text(
     sections = [
         ("Metadados principais", metadata_lines),
         ("Indicadores gerais", general_lines),
-        ("Leituras por antena", antenna_lines),
-        ("Cobertura do layout", layout_lines),
     ]
+    if analysis_mode == "continuous":
+        if not continuous_lines:
+            continuous_lines = ["- Nenhum indicador adicional disponível."]
+        sections.append(("Indicadores modo contínuo", continuous_lines))
+    sections.extend(
+        [
+            ("Leituras por antena", antenna_lines),
+            ("Cobertura do layout", layout_lines),
+        ]
+    )
 
     header = f"Resumo ItemTest — {csv_path.name}"
     divider = "=" * len(header)
@@ -317,7 +426,14 @@ def process_file(
     unexpected = summary[~mask_expected].copy()
 
     # resumo textual
-    summary_text = compose_summary_text(csv_path, metadata, summary, ant_counts, positions_df)
+    summary_text = compose_summary_text(
+        csv_path,
+        metadata,
+        summary,
+        ant_counts,
+        positions_df,
+        analysis_mode="structured",
+    )
     LOGGER.info("\n%s", summary_text)
 
     log_dir = out_dir / "logs"
@@ -335,6 +451,190 @@ def process_file(
     # excel
     excel_out = out_dir/f"{csv_path.stem}_resultado.xlsx"
     write_excel(str(excel_out), summary, unexpected, ant_counts, metadata, positions_df=positions_df)
+    return excel_out
+
+
+def process_continuous_file(
+    csv_path: Path,
+    out_dir: Path,
+    window_seconds: float,
+    expected_registry: dict[str, set[str]] | None = None,
+) -> Path:
+    """Process a CSV file using the continuous flow analysis pipeline."""
+
+    LOGGER.info("Processando (modo contínuo) %s ...", csv_path.name)
+    df, metadata = read_itemtest_csv(str(csv_path))
+    result = analyze_continuous_flow(df, window_seconds)
+
+    summary = result.per_epc_summary.copy()
+    if summary.empty:
+        summary = pd.DataFrame(
+            columns=[
+                "EPC",
+                "first_time",
+                "last_time",
+                "duration_present",
+                "total_reads",
+                "read_events",
+                "antenna_distribution",
+                "initial_antenna",
+                "final_antenna",
+                "direction_estimate",
+            ]
+        )
+    if "EPC" not in summary.columns:
+        summary["EPC"] = pd.Series(dtype=str)
+    summary["EPC"] = summary["EPC"].astype(str)
+    summary["EPC_suffix3"] = summary["EPC"].str[-3:].str.upper()
+    if "total_reads" not in summary.columns:
+        summary["total_reads"] = pd.Series(dtype=int)
+
+    ant_counts = summarize_by_antenna(df)
+
+    expected_suffixes: set[str] = set()
+    expected_full: set[str] = set()
+    if expected_registry:
+        expected_suffixes.update(expected_registry.get("expected_suffixes", set()))
+        expected_full.update(expected_registry.get("expected_full", set()))
+
+    if expected_full or expected_suffixes:
+        epc_upper = summary["EPC"].str.upper()
+        suffix_upper = summary["EPC_suffix3"].str.upper()
+        mask_expected = epc_upper.isin(expected_full) | suffix_upper.isin(expected_suffixes)
+    else:
+        mask_expected = pd.Series(True, index=summary.index)
+
+    summary["EPC_esperado"] = mask_expected
+    summary["Status_EPC"] = summary["EPC_esperado"].map({True: "Esperado", False: "Inesperado"})
+    unexpected = summary.loc[~mask_expected].copy()
+
+    dominant_antenna = None
+    if ant_counts is not None and not ant_counts.empty:
+        try:
+            idx = ant_counts["total_reads"].astype(float).idxmax()
+            candidate = ant_counts.loc[idx, "Antenna"]
+            if pd.notna(candidate):
+                try:
+                    dominant_antenna = int(candidate)
+                except (TypeError, ValueError):
+                    dominant_antenna = candidate
+        except ValueError:
+            dominant_antenna = None
+
+    total_events = int(result.epc_timeline.shape[0]) if not result.epc_timeline.empty else 0
+    alerts = _build_continuous_alerts(result.anomalous_epcs, result.inconsistency_flags)
+
+    peak_value = None
+    peak_time = None
+    if not result.epcs_per_minute.empty:
+        peak_value = int(result.epcs_per_minute.max())
+        peak_time = result.epcs_per_minute.idxmax()
+
+    continuous_details: dict[str, object] = {
+        "average_dwell_seconds": result.average_dwell_seconds,
+        "total_events": total_events,
+        "dominant_antenna": dominant_antenna,
+        "alerts": alerts,
+        "anomalous_epcs": result.anomalous_epcs,
+        "inconsistency_flags": result.inconsistency_flags,
+    }
+    if peak_value is not None:
+        continuous_details["epcs_per_minute_peak"] = peak_value
+    if peak_time is not None:
+        continuous_details["epcs_per_minute_peak_time"] = peak_time
+
+    summary_text = compose_summary_text(
+        csv_path,
+        metadata,
+        summary,
+        ant_counts,
+        positions_df=None,
+        analysis_mode="continuous",
+        continuous_details=continuous_details,
+    )
+    LOGGER.info("\n%s", summary_text)
+
+    log_dir = out_dir / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    summary_log = log_dir / f"{csv_path.stem}_resumo_continuo.txt"
+    summary_log.write_text(summary_text + "\n", encoding="utf-8")
+    LOGGER.info("Resumo contínuo salvo em: %s", summary_log)
+
+    alerts_path = log_dir / f"{csv_path.stem}_alertas_continuo.txt"
+    alerts_to_write = alerts if alerts else ["Nenhum alerta gerado."]
+    alerts_path.write_text("\n".join(alerts_to_write) + "\n", encoding="utf-8")
+    LOGGER.info("Alertas contínuos salvos em: %s", alerts_path)
+
+    epcs_per_minute_path = log_dir / f"{csv_path.stem}_epcs_por_minuto.csv"
+    epcs_per_minute_df = result.epcs_per_minute.rename_axis("minute").reset_index()
+    if epcs_per_minute_df.empty:
+        epcs_per_minute_df = pd.DataFrame(columns=["minute", "unique_epcs"])
+    else:
+        epcs_per_minute_df["minute"] = pd.to_datetime(
+            epcs_per_minute_df["minute"], errors="coerce"
+        ).dt.strftime("%Y-%m-%d %H:%M:%S")
+    epcs_per_minute_df.to_csv(epcs_per_minute_path, index=False, encoding="utf-8")
+    LOGGER.info("EPCs/minuto registrados em: %s", epcs_per_minute_path)
+
+    timeline_excel = result.epc_timeline.copy()
+    timeline_log_path = log_dir / f"{csv_path.stem}_timeline_continuo.csv"
+    timeline_log = timeline_excel.copy()
+    if timeline_log.empty:
+        timeline_log = pd.DataFrame(
+            columns=[
+                "EPC",
+                "event_index",
+                "entry_time",
+                "exit_time",
+                "duration_seconds",
+                "read_count",
+            ]
+        )
+    else:
+        for col in ("entry_time", "exit_time"):
+            if col in timeline_log.columns:
+                timeline_log[col] = pd.to_datetime(
+                    timeline_log[col], errors="coerce"
+                ).dt.strftime("%Y-%m-%d %H:%M:%S")
+    timeline_log.to_csv(timeline_log_path, index=False, encoding="utf-8")
+    LOGGER.info("Timeline contínua exportada em: %s", timeline_log_path)
+
+    fig_dir = out_dir / "graficos" / f"{csv_path.stem}_continuo"
+    plot_reads_by_epc(summary, str(fig_dir), title=f"Leituras por EPC — {csv_path.name} (contínuo)")
+    plot_reads_by_antenna(
+        ant_counts,
+        str(fig_dir),
+        title=f"Leituras por Antena — {csv_path.name} (contínuo)",
+    )
+    boxplot_rssi_by_antenna(
+        df,
+        str(fig_dir),
+        title=f"RSSI por Antena — {csv_path.name} (contínuo)",
+    )
+    plot_active_epcs_over_time(
+        result.epcs_per_minute,
+        str(fig_dir),
+        title=f"EPCs ativos ao longo do tempo — {csv_path.name}",
+    )
+    plot_antenna_heatmap(
+        summary,
+        str(fig_dir),
+        title=f"Mapa de calor por antena — {csv_path.name}",
+    )
+
+    excel_out = out_dir / f"{csv_path.stem}_resultado_continuo.xlsx"
+    write_excel(
+        str(excel_out),
+        summary,
+        unexpected,
+        ant_counts,
+        metadata,
+        positions_df=None,
+        continuous_timeline=timeline_excel,
+        continuous_metrics=continuous_details,
+    )
+    LOGGER.info("Relatório Excel contínuo salvo em: %s", excel_out)
     return excel_out
 
 def main():
@@ -403,24 +703,22 @@ def main():
 
     results: list[Path] = []
     if effective_mode == "continuous":
-        try:
-            from .continuous_mode import run_continuous_mode
-        except ImportError as exc:  # pragma: no cover - continuous module will be provided later
-            LOGGER.error("Rotina do modo contínuo indisponível: %s", exc)
-            sys.exit(1)
-        try:
-            run_results = run_continuous_mode(
-                csv_files=csv_files,
-                output_dir=out_dir,
-                window_seconds=window_seconds,
-                expected_registry=expected_registry,
-                logger=LOGGER,
-            )
-        except Exception as exc:  # pragma: no cover - propagate rich error details
-            LOGGER.exception("Falha ao executar processamento contínuo: %s", exc)
-            sys.exit(1)
-        if run_results:
-            results.extend(Path(r) for r in run_results)
+        for f in csv_files:
+            try:
+                res = process_continuous_file(
+                    f,
+                    out_dir,
+                    window_seconds=window_seconds,
+                    expected_registry=expected_registry,
+                )
+            except Exception as exc:  # pragma: no cover - capture informative tracebacks
+                LOGGER.exception(
+                    "Falha ao processar %s em modo contínuo: %s",
+                    f.name,
+                    exc,
+                )
+                sys.exit(1)
+            results.append(res)
     else:
         for f in csv_files:
             LOGGER.info("Processando %s ...", f.name)
