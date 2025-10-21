@@ -1,5 +1,10 @@
 # 🧾 CHANGELOG — ItemTestAnalyzer
 
+## Unreleased
+
+### ✨ Features
+- Added the `participation_pct` percentage column to the antenna summary, exposing how much each antenna contributes to the total number of reads.
+
 ## v0.1 — First AI-generated Release (2025-10-21)
 
 ### Overview
