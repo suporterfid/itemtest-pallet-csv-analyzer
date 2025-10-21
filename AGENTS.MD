@@ -2,19 +2,19 @@
 
 ## 🧭 Overview
 
-This repository implements a **Python-based data analysis application** that processes CSV exports from **Impinj ItemTest** RFID reading tests.
+This repository implements a **Python-based analytics application** that processes CSV exports from **Impinj ItemTest** RFID reading sessions.
 
-The system supports **two operation modes**:
+It supports **two operation modes**:
 
 1. **Structured Mode (`--mode structured`)**
-   Used for controlled RFID reading tests of totes or pallets where tags (EPCs) and their physical positions are known.
-   Optionally uses a **pallet layout reference file** (CSV/XLSX/Markdown) for coverage mapping.
+   Used for controlled RFID tests with **known tag layouts** (e.g., pallets or totes).
+   Uses an optional **layout reference file** (CSV/XLSX/Markdown) to correlate EPCs with physical pallet positions and calculate coverage, reliability, and antenna performance metrics.
 
 2. **Continuous Mode (`--mode continuous`)**
-   Designed for **real-world operations**, such as unloading multiple pallets from a trailer at a distribution dock.
-   In this mode, tags are **not known in advance**, and the system analyzes **continuous reading streams**, detecting EPC entries and exits dynamically.
+   Designed for **real-world operations**, such as unloading multiple pallets from a trailer in a distribution center (dock).
+   In this mode, tags are **not known in advance**, and the system detects **EPC entry, dwell, and exit events** over time to analyze throughput, congestion, and antenna performance dynamically.
 
-This document provides **guidelines for AI agents** (Codex, Responses API, or Assistants) to safely extend or refactor the system.
+This document defines how **AI agents (Codex, Assistants, or Responses API)** can safely extend or refactor this repository while maintaining functional parity and analytical integrity.
 
 ---
 
@@ -25,11 +25,11 @@ ItemTestAnalyzer/
 ├── src/
 │   ├── itemtest_analyzer.py     ← Main CLI entry point
 │   ├── parser.py                ← Parses Impinj ItemTest CSV logs
-│   ├── metrics.py               ← Computes EPC and antenna statistics
+│   ├── metrics.py               ← Computes EPC, antenna, and KPI statistics
 │   ├── pallet_layout.py         ← Handles optional pallet layout reference
-│   ├── continuous_mode.py       ← Handles continuous stream analysis (dock unloading)
-│   ├── plots.py                 ← Generates charts using matplotlib
-│   └── report.py                ← Builds Excel reports with xlsxwriter
+│   ├── continuous_mode.py       ← Handles continuous stream and dwell analysis
+│   ├── plots.py                 ← Generates static and temporal charts
+│   └── report.py                ← Builds Excel reports and textual summaries
 ├── samples/
 │   ├── Sample_ItemTest.csv
 │   └── Sample_Pallet_Layout.xlsx
@@ -47,179 +47,208 @@ ItemTestAnalyzer/
 
 ### 🎯 Primary Goals
 
-An AI agent working on this repository may:
+AI agents collaborating on this repository may:
 
-1. **Enhance structured-mode analytics** — improve tag position correlation, layout validation, or coverage metrics.
-2. **Develop continuous-mode logic** — detect tag flow, presence duration, and antenna-based movement patterns.
-3. **Extend reporting** — add temporal charts, pallet flow dashboards, or executive summaries.
-4. **Automate workflows** — multi-session batch processing or integration with Power BI.
-5. **Support visualization** — implement interactive dashboards using Streamlit or FastAPI.
+1. **Enhance structured-mode analytics** — improve coverage calculations, positional mapping, and antenna balance metrics.
+2. **Expand continuous-mode analysis** — detect tag dwell times, directionality, congestion peaks, and tag concurrency.
+3. **Extend reporting** — include new executive KPIs, statistical summaries, and Power BI–ready exports.
+4. **Automate workflows** — batch-process CSV folders and merge reports across sessions.
+5. **Integrate visualization** — add or extend dashboards using Streamlit, Plotly, or Power BI connectors.
 
 ---
 
 ### 🧱 Must Preserve
 
 * CLI entrypoint in `src/itemtest_analyzer.py`
-* Parameter usage:
+* Parameters:
 
   ```bash
   python src/itemtest_analyzer.py --input <input_dir> --output <output_dir> [--layout <layout_file>] [--mode <structured|continuous>] [--window <seconds>]
   ```
 * Windows 11 compatibility (UTF-8, spaces in paths)
-* Backward compatibility with previous CSV format (Impinj ItemTest)
-* Excel output consistency across modes (`Summary_by_EPC`, `Reads_by_Antenna`, etc.)
+* Backward compatibility with Impinj ItemTest CSV format
+* Consistent Excel outputs across modes (`Resumo_por_EPC`, `Leituras_por_Antena`, etc.)
 
 ---
 
 ## 🧠 System Behavior Summary
 
-### Step 1 — Parse ItemTest CSV
+### Step 1 — CSV Parsing
 
 * Ignore IP-like EPCs (`192.168.x.x`)
-* Keep only valid hexadecimal EPCs (`[0-9A-F]{24,}`)
+* Retain only valid hex EPCs (`[0-9A-F]{24,}`)
 * Extract metadata:
 
   * `AntennaIDs`, `ModeIndex`, `PowersInDbm`, `Session`, `InventoryMode`, `Hostname`
+* Convert timestamps and numeric columns properly (`RSSI`, `Frequency`, etc.)
 
 ---
 
-### Step 2 — Structured Mode (with layout)
+### Step 2 — Structured Mode (with layout reference)
 
-* Associate EPCs or suffixes with physical pallet positions.
-* Generate sheet `Pallet_Positions` and calculate coverage rate.
-* Mark missing tags and compute read distribution by side and height.
+* Correlate EPCs (or suffixes) with pallet positions.
+* Generate layout coverage and reliability maps.
+* Compute:
+
+  * **CoverageRate** = % of expected EPCs read
+  * **AntennaBalance** = deviation between antennas
+  * **RSSI Stability Index** (std deviation per antenna)
+  * **TopPerformerAntenna** (most reads)
+  * **TagReadRedundancy** (avg. repeated reads per EPC)
+* Generate `Posicoes_Pallet` sheet and visual heatmap of read density.
 
 ---
 
-### Step 3 — Continuous Mode (dock unloading)
+### Step 3 — Continuous Mode (dock unloading / unknown EPCs)
 
-When `--mode continuous` is active or no layout file is provided:
+When `--mode continuous` or no layout is provided:
 
-1. **Group readings** by EPC and time window (configurable via `--window`, default = 2 seconds).
-2. **Detect presence intervals:**
+1. **Temporal Grouping**
 
-   * If an EPC stops appearing for longer than the window, mark as **“exited field”**.
-3. **Compute metrics:**
+   * Aggregate readings by EPC and configurable window (`--window`, default 2 s).
+   * Detect EPC **entry** and **exit** events based on gaps > window.
 
-   | Field                  | Description                     |
-   | ---------------------- | ------------------------------- |
-   | `duration_present`     | Total time EPC was detected     |
-   | `read_events`          | Number of entry/exit events     |
-   | `antenna_distribution` | Percentage of reads per antenna |
-   | `direction_estimate`   | Approximate movement direction  |
-4. **Generate summaries:**
+2. **Dynamic Metrics per EPC**
 
-   * EPCs per minute
+   | Field                  | Description                       |
+   | ---------------------- | --------------------------------- |
+   | `duration_present`     | Total time EPC was detected       |
+   | `read_events`          | Number of entry/exit cycles       |
+   | `antenna_distribution` | % reads per antenna               |
+   | `direction_estimate`   | Inferred motion (e.g., Ant1→Ant3) |
+   | `RSSI_variability`     | Std dev of RSSI over time         |
+   | `active_concurrency`   | Avg. simultaneous EPCs active     |
+   | `TagDwellTimeAvg`      | Mean dwell time in field          |
+   | `TagDwellTimeMax`      | Max dwell time per EPC            |
+
+3. **Aggregated Insights**
+
+   * EPCs per minute (throughput)
    * Average dwell time
-   * Antenna with highest detection rate
-   * EPCs lingering too long (potential jam or read anomaly)
+   * RSSI mean and stability
+   * Antenna dominance
+   * Concurrency peak (max EPCs simultaneously detected)
+   * Session performance metrics (duration, throughput, RSSI trend)
+
+4. **Detect Anomalies**
+
+   * EPCs lingering excessively (possible obstructions)
+   * Inconsistent antenna reads (upper antennas only, etc.)
+   * Frequency drift or interference (`RSSI` fluctuation + frequency span)
 
 ---
 
-### Step 4 — Output Reports
+## 📊 Output Reports
 
-**Excel outputs:**
+### Excel Sheets
 
-* `Summary_by_EPC` — all EPC stats
-* `Reads_by_Antenna` — per-antenna performance
-* `Continuous_Flow` — (only in continuous mode) EPC entry/exit timeline
-* `Metadata` — reader/session info
-* `Pallet_Positions` — (only if layout available)
+| Sheet                    | Description                                     |
+| ------------------------ | ----------------------------------------------- |
+| `Resumo_por_EPC`         | Detailed EPC-level metrics (reads, RSSI, dwell) |
+| `Leituras_por_Antena`    | Antenna performance breakdown                   |
+| `Fluxo_Contínuo`         | Entry/exit timing (continuous mode only)        |
+| `Indicadores_Executivos` | Key performance indicators (aggregated)         |
+| `Metadata`               | Reader configuration and session info           |
+| `Posicoes_Pallet`        | Physical coverage (structured mode only)        |
 
-**Charts:**
+### Charts
 
 * Reads per EPC
 * Reads per Antenna
 * RSSI Boxplot by Antenna
 * EPCs Active over Time (continuous mode)
-* Heatmap of antenna coverage (continuous mode)
+* Heatmap (antenna coverage or pallet layout)
+* Throughput Timeline (EPCs/min)
+* RSSI vs Frequency scatter plot (noise detection)
 
-**Text summary (auto-generated):**
+### Text Summary Example
 
-> “During dock unloading from 14:00–14:15,
-> reader `192.168.68.100` detected 1,280 unique EPCs
-> average dwell: 3.4s, mean RSSI: –53.2 dBm,
-> main antenna: 3 (base left).”
+> “Between 14:00 and 14:15, reader `192.168.68.100` detected **1,280 unique EPCs**,
+> mean dwell time **3.4 s**, average RSSI **–53.2 dBm**,
+> with **Antenna 3** responsible for **47% of total reads**.”
 
 ---
 
 ## 🧰 Agent Action Map
 
-| Agent Capability      | Module                 | Purpose                                          |
-| --------------------- | ---------------------- | ------------------------------------------------ |
-| Add new metrics       | `metrics.py`           | Extend structured mode calculations              |
-| Add flow detection    | `continuous_mode.py`   | Implement EPC presence tracking and timing logic |
-| Add new chart type    | `plots.py`             | Visualize movement, heatmaps, or trends          |
-| Modify Excel layout   | `report.py`            | Add new worksheets or format summaries           |
-| Add CLI options       | `itemtest_analyzer.py` | Extend with `--mode` or `--window`               |
-| Update parsing        | `parser.py`            | Adjust CSV header recognition or metadata logic  |
-| Expand layout mapping | `pallet_layout.py`     | Handle multi-pallet or dynamic layouts           |
+| Capability             | Module                 | Purpose                                            |
+| ---------------------- | ---------------------- | -------------------------------------------------- |
+| Add new metrics        | `metrics.py`           | Extend both modes with additional KPIs             |
+| Add dwell analysis     | `continuous_mode.py`   | Implement EPC presence tracking and timing logic   |
+| Add advanced charts    | `plots.py`             | Generate time-based and heatmap visuals            |
+| Extend Excel reporting | `report.py`            | Add KPIs and summaries for executives              |
+| Expand CLI             | `itemtest_analyzer.py` | Support `--mode`, `--window`, `--summary`          |
+| Update parsing rules   | `parser.py`            | Enhance metadata extraction and timestamp handling |
+| Improve layout mapping | `pallet_layout.py`     | Multi-pallet, 3D mapping, or position weighting    |
 
 ---
 
 ## 🧠 Suggested AI Tasks
 
-| Task                                 | Goal                                                         | Tools                   |
-| ------------------------------------ | ------------------------------------------------------------ | ----------------------- |
-| `agent.add_continuous_mode()`        | Implement dynamic presence detection and time-based grouping | `pandas`, `numpy`       |
-| `agent.calculate_dwell_time()`       | Add per-EPC dwell time and movement direction                | `datetime`, `pandas`    |
-| `agent.extend_structured_coverage()` | Cross-analyze layout positions with read frequency           | `pandas`, `numpy`       |
-| `agent.generate_flow_heatmap()`      | Visualize dock throughput over time                          | `matplotlib`, `seaborn` |
-| `agent.add_window_parameter()`       | Add `--window` CLI argument for time threshold tuning        | `argparse`              |
-| `agent.add_streamlit_ui()`           | Add interactive web dashboard for EPC activity visualization | `streamlit`, `plotly`   |
-| `agent.create_pdf_summary()`         | Export executive PDF summaries with top metrics              | `reportlab`             |
+| Task                               | Objective                                            | Tools                       |
+| ---------------------------------- | ---------------------------------------------------- | --------------------------- |
+| `agent.extend_kpis()`              | Add CoverageRate, RSSI_StdDev, TagDwellTimeAvg, etc. | `pandas`, `numpy`           |
+| `agent.add_noise_analysis()`       | Detect high RSSI variance and frequency anomalies    | `numpy`, `matplotlib`       |
+| `agent.build_executive_summary()`  | Create Excel sheet with KPIs for management          | `xlsxwriter`, `pandas`      |
+| `agent.add_concurrency_metric()`   | Track peak concurrent tags                           | `pandas`, `datetime`        |
+| `agent.generate_throughput_plot()` | Plot EPCs per minute                                 | `matplotlib`, `seaborn`     |
+| `agent.add_streamlit_dashboard()`  | Visual dashboard for structured/continuous modes     | `streamlit`, `plotly`       |
+| `agent.create_pdf_report()`        | Export executive PDF with summarized metrics         | `reportlab`                 |
+| `agent.merge_sessions()`           | Combine multiple CSVs into unified analytics         | `glob`, `pathlib`, `pandas` |
 
 ---
 
 ## 🧩 Agent Development Rules
 
-1. **Do not modify** core CLI parameters (`--input`, `--output`, `--layout`, `--mode`, `--window`).
-2. **Preserve backward compatibility** with structured mode outputs.
-3. **Use Pathlib for all file paths.**
-4. **Ensure time-based grouping is parameterized** (window in seconds).
-5. **Always log anomalies** — duplicate EPCs, missing timestamps, or inconsistent antennas.
-6. **Document new functions** with purpose, parameters, and return values.
-7. **Follow PEP8 and UTF-8** coding standards.
+1. **Preserve CLI parameters** — `--input`, `--output`, `--layout`, `--mode`, `--window`, `--summary`.
+2. **Maintain backward compatibility** with current CSV/Excel structure.
+3. **Use Pathlib for file paths** (no hardcoded strings).
+4. **Document functions** with purpose, params, and return values.
+5. **Include logging** for missing or malformed EPCs, empty timestamps, and antenna mismatches.
+6. **Follow PEP8 and UTF-8 standards.**
+7. **Keep metrics modular** — define each KPI as an independent function for composability.
 
 ---
 
 ## 🧠 Future Extensions (AI Roadmap)
 
-| Feature                  | Description                                            |
-| ------------------------ | ------------------------------------------------------ |
-| 🔄 Multi-session summary | Aggregate several CSVs into one report                 |
-| ⏱ Real-time monitor      | Live dashboard for continuous mode (via Streamlit)     |
-| 🧭 Antenna calibration   | Calculate gain balance and coverage bias               |
-| 🧮 Power BI export       | Generate standardized CSV for BI ingestion             |
-| 🧾 PDF report            | Auto-generate executive summaries per session          |
-| 🧠 Predictive analytics  | Identify “blind spots” using tag dwell and RSSI trends |
+| Feature                 | Description                                       |
+| ----------------------- | ------------------------------------------------- |
+| 📊 Power BI connector   | Generate standardized KPI exports for dashboards  |
+| 🧾 PDF Reports          | Branded summaries for executives                  |
+| 🧠 Predictive Analytics | Identify blind zones and RF interference patterns |
+| 🧮 Comparative Mode     | Compare multiple sessions or readers              |
+| 🌐 Streamlit App        | Real-time upload, visualization, and export       |
+| 🧱 Docker Support       | Containerized version for production use          |
 
 ---
 
 ## 🧩 Prompt Template for AI Agents
 
 ```markdown
-You are an AI software engineer contributing to the repository ItemTestAnalyzer.
-Implement a feature according to the following guidelines:
+You are an AI engineer contributing to the repository ItemTestAnalyzer.
+Implement a new feature or enhancement following these requirements:
 
-- Mode support: structured and continuous.
-- CLI must preserve arguments (--input, --output, --layout, --mode, --window).
-- In continuous mode, analyze tag entry/exit and dwell times.
-- In structured mode, maintain pallet layout correlation.
+- Support both `--mode structured` and `--mode continuous`.
+- Preserve CLI parameters (`--input`, `--output`, `--layout`, `--mode`, `--window`, `--summary`).
+- Compute or visualize additional metrics such as CoverageRate, TagDwellTimeAvg, RSSI_StdDev, and ThroughputPerMinute.
+- Maintain Excel output consistency and backward compatibility.
 
-Use Python 3.11+, follow PEP8, and ensure UTF-8 compatibility on Windows 11.
-Return full file code for any module you modify.
+Use Python 3.11+, follow PEP8, and ensure UTF-8 compliance on Windows 11.
+Provide full updated module code with docstrings.
 ```
 
 ---
 
 ## 🧠 Summary
 
-This repository serves as a **dual-mode platform** for RFID read analysis:
+The *ItemTestAnalyzer* is a **dual-mode analytics platform** for RFID performance evaluation:
 
-* **Structured Mode** for controlled pallet tests;
-* **Continuous Mode** for live field scenarios such as dock unload monitoring.
+* **Structured Mode:** validation and layout-based testing.
+* **Continuous Mode:** real-time behavior analysis for dock operations.
 
-It’s engineered for modular, AI-assisted evolution — enabling both human developers and AI agents to extend it toward full **traceability, performance insight, and automation** in real-world RFID deployments.
+The repository is designed for **AI-assisted evolution**, enabling agents to deliver executive-level insight and technical depth — bridging engineering data with operational intelligence.
+
+---
 
 
