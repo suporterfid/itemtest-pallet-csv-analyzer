@@ -17,6 +17,7 @@
 | 11 | Add participation percentage per antenna | ✅ Done | AI Agent | `participation_pct` now available in antenna summary and Excel report |
 | 12 | Allow expected EPC list without layout | ✅ Done | AI Agent | New `--expected` option loads EPC/suffix presets and flags unexpected tags |
 | 13 | Generate per-file textual summary | ✅ Done | AI Agent | Prints metadata, per-antenna stats, and layout coverage in the logs |
+| 14 | Garantir execução do CLI como módulo ou script | ✅ Done | Developer | Ajustado bootstrap em `analisar_itemtest.py` para configurar `sys.path` automaticamente |
 
 ---
 

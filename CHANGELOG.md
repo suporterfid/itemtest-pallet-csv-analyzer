@@ -8,6 +8,9 @@
 - Generated a structured textual summary combining metadata, per-antenna statistics, and layout coverage, registrando-o nos arquivos de log sob `output/logs/` para cada CSV processado.
 - Configured centralized logging for the CLI to persist INFO/ERROR entries in `output/logs/<data>_analisar_itemtest.log` while mirroring messages to the console.
 
+### 🐞 Fixes
+- Corrigido o bootstrap do CLI para aceitar tanto `python src/analisar_itemtest.py` quanto `python -m src.analisar_itemtest`, mantendo a compatibilidade com o `run.bat` no Windows.
+
 ## v0.1 — First AI-generated Release (2025-10-21)
 
 ### Overview

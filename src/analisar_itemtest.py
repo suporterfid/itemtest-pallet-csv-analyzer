@@ -11,6 +11,13 @@ from typing import Iterable
 
 import pandas as pd
 
+if __package__ in (None, ""):
+    package_path = Path(__file__).resolve().parent
+    project_root = package_path.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    __package__ = package_path.name
+
 from .parser import read_itemtest_csv
 from .metrics import summarize_by_epc, summarize_by_antenna
 from .plots import plot_reads_by_epc, plot_reads_by_antenna, boxplot_rssi_by_antenna
