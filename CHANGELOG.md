@@ -33,6 +33,10 @@ This version was entirely generated from an AI Agent specification authored by *
 - ✅ **UTF-8 + Windows 11 compatibility**
 - ✅ **CLI and Batch Execution** (`run.bat`)
 
+### 🐞 Fixes
+- Normalized metadata parsing in `read_itemtest_csv`, keeping antenna lists, session, mode index, hostname and power-per-antenna
+  pairs consistent even when header lines are split across commas or newlines.
+
 ---
 
 ### 🧩 Architecture
