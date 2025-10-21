@@ -6,6 +6,18 @@ import pandas as pd
 IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 HEX_EPC_MIN24 = re.compile(r"^[0-9A-Fa-f]{24,}$")
 
+HOSTNAME_ALIASES = (
+    "ReaderName",
+    "ReaderHostname",
+    "Reader Hostname",
+    "Reader Host",
+    "ReaderAddress",
+    "Reader Address",
+    "ReaderIP",
+    "Reader IP",
+    "Reader",
+)
+
 def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
     """
     Lê CSV exportado pelo Impinj ItemTest com cabeçalhos comentados começando por //
@@ -145,6 +157,35 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
     df["EPC"] = df["EPC"].astype(str).str.strip()
     df = df[~df["EPC"].str.match(IPV4_RE, na=False)]
     df = df[df["EPC"].str.match(HEX_EPC_MIN24, na=False)]
+
+    def _normalize_hostname(value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, float) and pd.isna(value):
+            return None
+        text = str(value).strip()
+        if not text or text.lower() == "nan":
+            return None
+        return text
+
+    hostname_value = _normalize_hostname(metadata.get("Hostname"))
+    if hostname_value:
+        metadata["Hostname"] = hostname_value
+    else:
+        metadata.pop("Hostname", None)
+        for alias in HOSTNAME_ALIASES:
+            alias_candidate = _normalize_hostname(parsed_pairs.get(alias))
+            if alias_candidate:
+                metadata["Hostname"] = alias_candidate
+                hostname_value = alias_candidate
+                break
+    if not hostname_value and "Hostname" in df.columns:
+        for raw_value in df["Hostname"]:
+            candidate = _normalize_hostname(raw_value)
+            if candidate:
+                metadata["Hostname"] = candidate
+                hostname_value = candidate
+                break
 
     return df, metadata
 
