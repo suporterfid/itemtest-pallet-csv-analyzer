@@ -84,6 +84,25 @@ def write_excel(
                 per_minute_df["minute"], errors="coerce"
             )
 
+    inactive_df = None
+    inactive_info = metrics_info.get("inactive_periods")
+    if inactive_info is not None:
+        if isinstance(inactive_info, pd.DataFrame):
+            inactive_df = inactive_info.copy()
+        else:
+            inactive_df = pd.DataFrame(inactive_info)
+        if not inactive_df.empty:
+            for column in ("start_time", "end_time"):
+                if column in inactive_df.columns:
+                    inactive_df[column] = pd.to_datetime(
+                        inactive_df[column], errors="coerce"
+                    )
+            for numeric_column in ("duration_seconds", "gap_seconds", "gap_multiplier"):
+                if numeric_column in inactive_df.columns:
+                    inactive_df[numeric_column] = pd.to_numeric(
+                        inactive_df[numeric_column], errors="coerce"
+                    )
+
     concurrency_df = None
     concurrency_info = metrics_info.get("concurrency_timeline")
     if concurrency_info is not None:
@@ -224,8 +243,18 @@ def write_excel(
         lambda value: round(float(value), 2),
     )
     _append_executive(
+        "Maximum dwell time (s)",
+        metrics_info.get("tag_dwell_time_max"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
         "Throughput (distinct EPCs/min)",
         metrics_info.get("throughput_per_minute"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Session throughput (reads/min)",
+        metrics_info.get("session_throughput"),
         lambda value: round(float(value), 2),
     )
     _append_executive(
@@ -248,6 +277,11 @@ def write_excel(
         metrics_info.get("concurrency_average"),
         lambda value: round(float(value), 2),
     )
+    _append_executive(
+        "Congestion index (reads/s)",
+        metrics_info.get("congestion_index"),
+        lambda value: round(float(value), 2),
+    )
     peak_concurrency_exec = metrics_info.get("concurrency_peak")
     peak_concurrency_repr = _format_peak_with_timestamp(
         peak_concurrency_exec, metrics_info.get("concurrency_peak_time")
@@ -256,6 +290,22 @@ def write_excel(
         executive_rows.append(
             {"Indicator": "Peak concurrent EPCs", "Value": peak_concurrency_repr}
         )
+
+    _append_executive(
+        "Inactive periods (>5× window)",
+        metrics_info.get("inactive_periods_count"),
+        lambda value: int(value),
+    )
+    _append_executive(
+        "Total inactive time (s)",
+        metrics_info.get("inactive_total_seconds"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Longest inactive period (s)",
+        metrics_info.get("inactive_longest_seconds"),
+        lambda value: round(float(value), 2),
+    )
 
     throughput_mean = metrics_info.get("epcs_per_minute_mean")
     _append_executive(
@@ -282,6 +332,17 @@ def write_excel(
         except (TypeError, ValueError):
             dominant_display = dominant_exec
         executive_rows.append({"Indicator": "Dominant antenna", "Value": dominant_display})
+
+    _append_executive(
+        "Global RSSI mean (dBm)",
+        metrics_info.get("global_rssi_avg"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Global RSSI std (dBm)",
+        metrics_info.get("global_rssi_std"),
+        lambda value: round(float(value), 2),
+    )
 
     coverage_rate = structured_info.get("coverage_rate")
     if coverage_rate is not None and not pd.isna(coverage_rate):
@@ -532,6 +593,11 @@ def write_excel(
             lambda value: round(float(value), 2),
         )
         _append_metric(
+            "Maximum dwell time (s)",
+            metrics_info.get("tag_dwell_time_max"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
             "Entry/exit events",
             metrics_info.get("total_events"),
             lambda value: int(value),
@@ -582,6 +648,11 @@ def write_excel(
             lambda value: round(float(value), 2),
         )
         _append_metric(
+            "Session throughput (reads/min)",
+            metrics_info.get("session_throughput"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
             "Read continuity rate (%)",
             metrics_info.get("read_continuity_rate"),
             lambda value: round(float(value), 2),
@@ -616,6 +687,11 @@ def write_excel(
             metrics_info.get("concurrency_average"),
             lambda value: round(float(value), 2),
         )
+        _append_metric(
+            "Congestion index (reads/s)",
+            metrics_info.get("congestion_index"),
+            lambda value: round(float(value), 2),
+        )
         peak_concurrency_repr = _format_peak_with_timestamp(
             metrics_info.get("concurrency_peak"),
             metrics_info.get("concurrency_peak_time"),
@@ -635,9 +711,41 @@ def write_excel(
                 }
             )
 
+        _append_metric(
+            "Inactive periods (>5× window)",
+            metrics_info.get("inactive_periods_count"),
+            lambda value: int(value),
+        )
+        _append_metric(
+            "Total inactive time (s)",
+            metrics_info.get("inactive_total_seconds"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Longest inactive period (s)",
+            metrics_info.get("inactive_longest_seconds"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Global RSSI mean (dBm)",
+            metrics_info.get("global_rssi_avg"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Global RSSI std (dBm)",
+            metrics_info.get("global_rssi_std"),
+            lambda value: round(float(value), 2),
+        )
+
         alerts_lines = _build_alert_lines()
 
-        if metrics_rows or alerts_lines or timeline_df is not None or per_minute_df is not None:
+        if (
+            metrics_rows
+            or alerts_lines
+            or timeline_df is not None
+            or per_minute_df is not None
+            or inactive_df is not None
+        ):
             sheet_name = SHEET_FLUXO
             start_row = 0
             if metrics_rows:
@@ -673,6 +781,25 @@ def write_excel(
                     startrow=start_row,
                 )
                 start_row += len(per_minute_to_write) + 2
+            if inactive_df is not None and not inactive_df.empty:
+                inactive_to_write = inactive_df.copy()
+                for column in ("start_time", "end_time"):
+                    if column in inactive_to_write.columns:
+                        inactive_to_write[column] = inactive_to_write[column].dt.strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+                for numeric_column in ("duration_seconds", "gap_seconds", "gap_multiplier"):
+                    if numeric_column in inactive_to_write.columns:
+                        inactive_to_write[numeric_column] = inactive_to_write[
+                            numeric_column
+                        ].round(2)
+                inactive_to_write.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name=sheet_name,
+                    startrow=start_row,
+                )
+                start_row += len(inactive_to_write) + 2
             if concurrency_df is not None and not concurrency_df.empty:
                 concurrency_to_write = concurrency_df.copy()
                 if "timestamp" in concurrency_to_write.columns:

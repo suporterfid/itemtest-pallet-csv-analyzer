@@ -216,6 +216,12 @@ def compose_summary_text(
         else:
             continuous_lines.append("- Tempo médio de permanência: não disponível")
 
+        max_dwell = details.get("tag_dwell_time_max")
+        if max_dwell is not None and not pd.isna(max_dwell):
+            continuous_lines.append(
+                f"- Tempo máximo de permanência: {float(max_dwell):.2f} s"
+            )
+
         read_continuity = details.get("read_continuity_rate")
         if read_continuity is not None and not pd.isna(read_continuity):
             continuous_lines.append(
@@ -277,6 +283,12 @@ def compose_summary_text(
                 f"- Throughput (EPCs/min): {float(throughput):.2f}"
             )
 
+        session_throughput = details.get("session_throughput")
+        if session_throughput is not None and not pd.isna(session_throughput):
+            continuous_lines.append(
+                f"- Throughput da sessão (leituras/min): {float(session_throughput):.2f}"
+            )
+
         mean_epcs = details.get("epcs_per_minute_mean")
         if mean_epcs is not None and not pd.isna(mean_epcs):
             continuous_lines.append(
@@ -287,6 +299,12 @@ def compose_summary_text(
         if concurrency_avg is not None and not pd.isna(concurrency_avg):
             continuous_lines.append(
                 f"- EPCs simultâneos (média): {float(concurrency_avg):.2f}"
+            )
+
+        congestion_index = details.get("congestion_index")
+        if congestion_index is not None and not pd.isna(congestion_index):
+            continuous_lines.append(
+                f"- Índice de congestão (leituras/s): {float(congestion_index):.2f}"
             )
 
         peak_value = details.get("epcs_per_minute_peak")
@@ -321,6 +339,33 @@ def compose_summary_text(
                 peak_concurrency_repr = str(int(peak_concurrency))
             continuous_lines.append(
                 f"- Pico de EPCs simultâneos: {peak_concurrency_repr}"
+            )
+
+        inactive_count = details.get("inactive_periods_count")
+        if inactive_count is not None and not pd.isna(inactive_count):
+            continuous_lines.append(
+                f"- Períodos inativos (>5× janela): {int(inactive_count)}"
+            )
+        inactive_total = details.get("inactive_total_seconds")
+        if inactive_total is not None and not pd.isna(inactive_total):
+            continuous_lines.append(
+                f"- Tempo inativo acumulado: {float(inactive_total):.2f} s"
+            )
+        inactive_longest = details.get("inactive_longest_seconds")
+        if inactive_longest is not None and not pd.isna(inactive_longest):
+            continuous_lines.append(
+                f"- Maior período inativo: {float(inactive_longest):.2f} s"
+            )
+
+        global_rssi_avg = details.get("global_rssi_avg")
+        if global_rssi_avg is not None and not pd.isna(global_rssi_avg):
+            continuous_lines.append(
+                f"- RSSI médio global: {float(global_rssi_avg):.2f} dBm"
+            )
+        global_rssi_std = details.get("global_rssi_std")
+        if global_rssi_std is not None and not pd.isna(global_rssi_std):
+            continuous_lines.append(
+                f"- Desvio padrão global de RSSI: {float(global_rssi_std):.2f} dBm"
             )
 
         alerts = details.get("alerts")

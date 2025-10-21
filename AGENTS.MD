@@ -130,6 +130,13 @@ When `--mode continuous` or no layout is provided:
    * Concurrency peak (max EPCs simultaneously detected)
    * Session performance metrics (duration, throughput, RSSI trend)
 
+> ✅ Implemented KPIs include **TagDwellTimeMax**, **session throughput (reads/min)**,
+> **inactive periods (>5× janela)**, **congestion index**, and global RSSI
+> statistics. They are computed in `src/continuous_mode.py`, forwarded by
+> `process_continuous_file` (continuous branch of `src/itemtest_analyzer.py`), and
+> rendered by `src/report.write_excel`, `src/analisar_itemtest.compose_summary_text`,
+> and the consolidated summary writer.
+
 4. **Detect Anomalies**
 
    * EPCs lingering excessively (possible obstructions)

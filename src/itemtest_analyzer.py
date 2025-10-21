@@ -224,13 +224,21 @@ SUMMARY_COLUMN_ORDER = [
     "top_performer",
     "average_dwell_seconds",
     "throughput_per_minute",
+    "session_throughput",
     "read_continuity_rate",
     "session_duration_seconds",
     "session_active_seconds",
+    "tag_dwell_time_max",
     "concurrency_peak",
     "concurrency_average",
     "concurrency_peak_time",
     "dominant_antenna",
+    "inactive_periods_count",
+    "inactive_total_seconds",
+    "inactive_longest_seconds",
+    "congestion_index",
+    "global_rssi_avg",
+    "global_rssi_std",
     "alerts_count",
     "analysis_window_seconds",
     "layout_total_positions",
@@ -377,13 +385,21 @@ def _register_continuous_summary(
 
     record["average_dwell_seconds"] = _clean_float(continuous_details.get("average_dwell_seconds"))
     record["throughput_per_minute"] = _clean_float(continuous_details.get("throughput_per_minute"))
+    record["session_throughput"] = _clean_float(continuous_details.get("session_throughput"))
     record["read_continuity_rate"] = _clean_float(continuous_details.get("read_continuity_rate"))
     record["session_duration_seconds"] = _clean_float(continuous_details.get("session_duration_seconds"))
     record["session_active_seconds"] = _clean_float(continuous_details.get("session_active_seconds"))
+    record["tag_dwell_time_max"] = _clean_float(continuous_details.get("tag_dwell_time_max"))
     record["concurrency_peak"] = _clean_int(continuous_details.get("concurrency_peak"))
     record["concurrency_average"] = _clean_float(continuous_details.get("concurrency_average"))
     record["concurrency_peak_time"] = _format_timestamp_str(continuous_details.get("concurrency_peak_time"))
     record["dominant_antenna"] = _clean_int(continuous_details.get("dominant_antenna"))
+    record["inactive_periods_count"] = _clean_int(continuous_details.get("inactive_periods_count"))
+    record["inactive_total_seconds"] = _clean_float(continuous_details.get("inactive_total_seconds"))
+    record["inactive_longest_seconds"] = _clean_float(continuous_details.get("inactive_longest_seconds"))
+    record["congestion_index"] = _clean_float(continuous_details.get("congestion_index"))
+    record["global_rssi_avg"] = _clean_float(continuous_details.get("global_rssi_avg"))
+    record["global_rssi_std"] = _clean_float(continuous_details.get("global_rssi_std"))
     record["alerts_count"] = len(alerts or [])
     record["epcs_per_minute_mean"] = _clean_float(continuous_details.get("epcs_per_minute_mean"))
     record["epcs_per_minute_peak"] = _clean_int(continuous_details.get("epcs_per_minute_peak"))
@@ -419,6 +435,8 @@ def _build_overview_table(per_file_df: pd.DataFrame) -> pd.DataFrame:
         agg_spec["avg_dwell_seconds"] = ("average_dwell_seconds", "mean")
     if "throughput_per_minute" in per_file_df.columns:
         agg_spec["avg_throughput_per_minute"] = ("throughput_per_minute", "mean")
+    if "session_throughput" in per_file_df.columns:
+        agg_spec["avg_session_throughput"] = ("session_throughput", "mean")
     if "read_continuity_rate" in per_file_df.columns:
         agg_spec["avg_read_continuity"] = ("read_continuity_rate", "mean")
     if "session_duration_seconds" in per_file_df.columns:
@@ -429,6 +447,20 @@ def _build_overview_table(per_file_df: pd.DataFrame) -> pd.DataFrame:
         agg_spec["max_concurrency_peak"] = ("concurrency_peak", "max")
     if "concurrency_average" in per_file_df.columns:
         agg_spec["avg_concurrency"] = ("concurrency_average", "mean")
+    if "tag_dwell_time_max" in per_file_df.columns:
+        agg_spec["max_tag_dwell_time"] = ("tag_dwell_time_max", "max")
+    if "inactive_periods_count" in per_file_df.columns:
+        agg_spec["total_inactive_periods"] = ("inactive_periods_count", "sum")
+    if "inactive_total_seconds" in per_file_df.columns:
+        agg_spec["sum_inactive_seconds"] = ("inactive_total_seconds", "sum")
+    if "inactive_longest_seconds" in per_file_df.columns:
+        agg_spec["max_inactive_seconds"] = ("inactive_longest_seconds", "max")
+    if "congestion_index" in per_file_df.columns:
+        agg_spec["avg_congestion_index"] = ("congestion_index", "mean")
+    if "global_rssi_avg" in per_file_df.columns:
+        agg_spec["avg_global_rssi"] = ("global_rssi_avg", "mean")
+    if "global_rssi_std" in per_file_df.columns:
+        agg_spec["avg_global_rssi_std"] = ("global_rssi_std", "mean")
 
     overview = (
         per_file_df.groupby("mode", dropna=False).agg(**agg_spec).reset_index()
@@ -457,6 +489,8 @@ def _build_overview_table(per_file_df: pd.DataFrame) -> pd.DataFrame:
         overall_row["avg_dwell_seconds"] = _clean_float(per_file_df["average_dwell_seconds"].mean())
     if "throughput_per_minute" in per_file_df.columns:
         overall_row["avg_throughput_per_minute"] = _clean_float(per_file_df["throughput_per_minute"].mean())
+    if "session_throughput" in per_file_df.columns:
+        overall_row["avg_session_throughput"] = _clean_float(per_file_df["session_throughput"].mean())
     if "read_continuity_rate" in per_file_df.columns:
         overall_row["avg_read_continuity"] = _clean_float(per_file_df["read_continuity_rate"].mean())
     if "session_duration_seconds" in per_file_df.columns:
@@ -467,6 +501,20 @@ def _build_overview_table(per_file_df: pd.DataFrame) -> pd.DataFrame:
         overall_row["max_concurrency_peak"] = _clean_int(per_file_df["concurrency_peak"].max())
     if "concurrency_average" in per_file_df.columns:
         overall_row["avg_concurrency"] = _clean_float(per_file_df["concurrency_average"].mean())
+    if "tag_dwell_time_max" in per_file_df.columns:
+        overall_row["max_tag_dwell_time"] = _clean_float(per_file_df["tag_dwell_time_max"].max())
+    if "inactive_periods_count" in per_file_df.columns:
+        overall_row["total_inactive_periods"] = _clean_float(per_file_df["inactive_periods_count"].sum())
+    if "inactive_total_seconds" in per_file_df.columns:
+        overall_row["sum_inactive_seconds"] = _clean_float(per_file_df["inactive_total_seconds"].sum())
+    if "inactive_longest_seconds" in per_file_df.columns:
+        overall_row["max_inactive_seconds"] = _clean_float(per_file_df["inactive_longest_seconds"].max())
+    if "congestion_index" in per_file_df.columns:
+        overall_row["avg_congestion_index"] = _clean_float(per_file_df["congestion_index"].mean())
+    if "global_rssi_avg" in per_file_df.columns:
+        overall_row["avg_global_rssi"] = _clean_float(per_file_df["global_rssi_avg"].mean())
+    if "global_rssi_std" in per_file_df.columns:
+        overall_row["avg_global_rssi_std"] = _clean_float(per_file_df["global_rssi_std"].mean())
 
     overview = pd.concat([overview, pd.DataFrame([overall_row])], ignore_index=True)
 
@@ -501,13 +549,20 @@ def generate_consolidated_summary(
         "rssi_stability_index",
         "average_dwell_seconds",
         "throughput_per_minute",
+        "session_throughput",
         "read_continuity_rate",
         "session_duration_seconds",
         "session_active_seconds",
+        "tag_dwell_time_max",
         "concurrency_average",
         "layout_overall_coverage",
         "epcs_per_minute_mean",
         "analysis_window_seconds",
+        "inactive_total_seconds",
+        "inactive_longest_seconds",
+        "congestion_index",
+        "global_rssi_avg",
+        "global_rssi_std",
     ]
     for column in float_candidates:
         if column in per_file_df.columns:
@@ -734,11 +789,20 @@ def process_continuous_file(
         "inconsistency_flags": result.inconsistency_flags,
         "read_continuity_rate": result.read_continuity_rate,
         "throughput_per_minute": result.throughput_per_minute,
+        "session_throughput": result.session_throughput,
         "session_start": result.session_start,
         "session_end": result.session_end,
         "session_end_with_grace": result.session_end_with_grace,
         "session_duration_seconds": result.session_duration_seconds,
         "session_active_seconds": result.session_active_seconds,
+        "tag_dwell_time_max": result.tag_dwell_time_max,
+        "inactive_periods": result.inactive_periods,
+        "inactive_periods_count": result.inactive_periods_count,
+        "inactive_total_seconds": result.inactive_total_seconds,
+        "inactive_longest_seconds": result.inactive_longest_seconds,
+        "congestion_index": result.congestion_index,
+        "global_rssi_avg": result.global_rssi_avg,
+        "global_rssi_std": result.global_rssi_std,
         "concurrency_peak": result.concurrency_peak,
         "concurrency_peak_time": result.concurrency_peak_time,
         "concurrency_average": result.concurrency_average,

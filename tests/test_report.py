@@ -57,6 +57,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
         continuous_metrics = {
             "average_dwell_seconds": 1.8,
             "throughput_per_minute": 37.5,
+            "session_throughput": 58.2,
             "read_continuity_rate": 83.4,
             "session_duration_seconds": 420.0,
             "session_active_seconds": 380.0,
@@ -67,6 +68,24 @@ class TestReportWorkbookStructure(unittest.TestCase):
             "epcs_per_minute_peak": 58,
             "epcs_per_minute_peak_time": pd.Timestamp("2025-01-01 12:04:00"),
             "dominant_antenna": 2,
+            "tag_dwell_time_max": 4.5,
+            "inactive_periods_count": 2,
+            "inactive_total_seconds": 45.0,
+            "inactive_longest_seconds": 30.0,
+            "congestion_index": 0.75,
+            "global_rssi_avg": -51.2,
+            "global_rssi_std": 1.4,
+            "inactive_periods": pd.DataFrame(
+                [
+                    {
+                        "start_time": pd.Timestamp("2025-01-01 12:10:00"),
+                        "end_time": pd.Timestamp("2025-01-01 12:12:00"),
+                        "duration_seconds": 120.0,
+                        "gap_seconds": 130.0,
+                        "gap_multiplier": 6.5,
+                    }
+                ]
+            ),
         }
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -158,6 +177,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
         continuous_metrics = {
             "average_dwell_seconds": 12.34,
             "throughput_per_minute": 45.6,
+            "session_throughput": 72.5,
             "read_continuity_rate": 88.9,
             "session_duration_seconds": 300.0,
             "session_active_seconds": 240.0,
@@ -168,6 +188,24 @@ class TestReportWorkbookStructure(unittest.TestCase):
             "epcs_per_minute_peak": 60,
             "epcs_per_minute_peak_time": pd.Timestamp("2025-01-02 08:17:00"),
             "dominant_antenna": 4,
+            "tag_dwell_time_max": 18.9,
+            "inactive_periods_count": 4,
+            "inactive_total_seconds": 55.0,
+            "inactive_longest_seconds": 20.0,
+            "congestion_index": 0.42,
+            "global_rssi_avg": -49.8,
+            "global_rssi_std": 1.25,
+            "inactive_periods": pd.DataFrame(
+                [
+                    {
+                        "start_time": pd.Timestamp("2025-01-02 08:05:00"),
+                        "end_time": pd.Timestamp("2025-01-02 08:06:30"),
+                        "duration_seconds": 90.0,
+                        "gap_seconds": 100.0,
+                        "gap_multiplier": 5.0,
+                    }
+                ]
+            ),
         }
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -182,23 +220,52 @@ class TestReportWorkbookStructure(unittest.TestCase):
             )
 
             exec_df = pd.read_excel(out_path, sheet_name="Indicadores_Executivos")
+            flow_sheet = pd.read_excel(out_path, sheet_name="Fluxo_Contínuo", header=None)
 
         exec_values = exec_df.set_index("Indicator")["Value"]
 
         self.assertAlmostEqual(float(exec_values["Average dwell time (s)"]), 12.34, places=2)
+        self.assertAlmostEqual(float(exec_values["Maximum dwell time (s)"]), 18.9, places=1)
         self.assertAlmostEqual(
             float(exec_values["Throughput (distinct EPCs/min)"]), 45.6, places=2
+        )
+        self.assertAlmostEqual(
+            float(exec_values["Session throughput (reads/min)"]), 72.5, places=1
         )
         self.assertAlmostEqual(
             float(exec_values["Read continuity rate (%)"]), 88.9, places=1
         )
         self.assertAlmostEqual(float(exec_values["Average active EPCs/min"]), 42.1, places=1)
+        self.assertAlmostEqual(
+            float(exec_values["Congestion index (reads/s)"]), 0.42, places=2
+        )
+        self.assertAlmostEqual(
+            float(exec_values["Total inactive time (s)"]), 55.0, places=1
+        )
+        self.assertAlmostEqual(
+            float(exec_values["Longest inactive period (s)"]), 20.0, places=1
+        )
+        self.assertAlmostEqual(
+            float(exec_values["Global RSSI mean (dBm)"]), -49.8, places=1
+        )
+        self.assertAlmostEqual(
+            float(exec_values["Global RSSI std (dBm)"]), 1.25, places=2
+        )
         self.assertEqual(
             str(exec_values["Peak active EPCs/min"]), "60 at 2025-01-02 08:17:00"
         )
         self.assertEqual(
             str(exec_values["Peak concurrent EPCs"]), "7 at 2025-01-02 08:15:00"
         )
+        self.assertEqual(
+            int(float(exec_values["Inactive periods (>5× window)"])), 4
+        )
+
+        first_column = flow_sheet.iloc[:, 0].astype(str).tolist()
+        self.assertIn("Maximum dwell time (s)", first_column)
+        self.assertIn("Session throughput (reads/min)", first_column)
+        self.assertIn("Inactive periods (>5× window)", first_column)
+        self.assertTrue(any("start_time" in str(value) for value in first_column))
         self.assertEqual(str(exec_values["Dominant antenna"]), "4")
 
 

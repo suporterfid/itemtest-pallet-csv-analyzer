@@ -22,6 +22,7 @@
 | 16 | Garantir fallback de Hostname no parser | ✅ Done | AI Agent | Hostname passa a usar `ReaderName` ou dados da coluna para alimentar relatórios |
 | 17 | Expand structured-mode KPIs in metrics/report | ✅ Done | AI Agent | Coverage, redundancy, balance, and RSSI stability surfaced in summaries and new `Structured_KPIs` sheet |
 | 18 | Align Excel workbook sheet naming with executive KPIs | ✅ Done | AI Agent | Tabs renamed to mandated Portuguese titles and executive dashboard merges structured/continuous metrics |
+| 19 | Expand continuous-mode KPIs (dwell max, idle gaps, congestion) | ✅ Done | AI Agent | Session throughput, inactivity detection, congestion index, and global RSSI propagated to reports/summary |
 
 ---
 

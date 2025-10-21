@@ -25,11 +25,20 @@ class ContinuousFlowResult:
     concurrency_timeline: pd.DataFrame
     read_continuity_rate: float | None
     throughput_per_minute: float | None
+    session_throughput: float | None
     session_start: pd.Timestamp | None
     session_end: pd.Timestamp | None
     session_end_with_grace: pd.Timestamp | None
     session_duration_seconds: float | None
     session_active_seconds: float | None
+    tag_dwell_time_max: float | None
+    inactive_periods: pd.DataFrame
+    inactive_periods_count: int
+    inactive_total_seconds: float | None
+    inactive_longest_seconds: float | None
+    congestion_index: float | None
+    global_rssi_avg: float | None
+    global_rssi_std: float | None
     concurrency_peak: int | None
     concurrency_peak_time: pd.Timestamp | None
     concurrency_average: float | None
@@ -60,11 +69,20 @@ class ContinuousFlowResult:
             "concurrency_timeline": self.concurrency_timeline.to_dict(orient="records"),
             "read_continuity_rate": self.read_continuity_rate,
             "throughput_per_minute": self.throughput_per_minute,
+            "session_throughput": self.session_throughput,
             "session_start": _convert_timestamp(self.session_start),
             "session_end": _convert_timestamp(self.session_end),
             "session_end_with_grace": _convert_timestamp(self.session_end_with_grace),
             "session_duration_seconds": self.session_duration_seconds,
             "session_active_seconds": self.session_active_seconds,
+            "tag_dwell_time_max": self.tag_dwell_time_max,
+            "inactive_periods": self.inactive_periods.to_dict(orient="records"),
+            "inactive_periods_count": self.inactive_periods_count,
+            "inactive_total_seconds": self.inactive_total_seconds,
+            "inactive_longest_seconds": self.inactive_longest_seconds,
+            "congestion_index": self.congestion_index,
+            "global_rssi_avg": self.global_rssi_avg,
+            "global_rssi_std": self.global_rssi_std,
             "concurrency_peak": self.concurrency_peak,
             "concurrency_peak_time": _convert_timestamp(self.concurrency_peak_time),
             "concurrency_average": self.concurrency_average,
@@ -99,6 +117,9 @@ def analyze_continuous_flow(
     if df.empty:
         empty_frame = pd.DataFrame()
         empty_series = pd.Series(dtype="int64")
+        empty_inactive = pd.DataFrame(
+            columns=["start_time", "end_time", "duration_seconds", "gap_seconds", "gap_multiplier"]
+        )
         return ContinuousFlowResult(
             per_epc_summary=empty_frame,
             epc_timeline=empty_frame,
@@ -109,11 +130,20 @@ def analyze_continuous_flow(
             concurrency_timeline=empty_frame,
             read_continuity_rate=None,
             throughput_per_minute=None,
+            session_throughput=None,
             session_start=None,
             session_end=None,
             session_end_with_grace=None,
             session_duration_seconds=None,
             session_active_seconds=None,
+            tag_dwell_time_max=None,
+            inactive_periods=empty_inactive,
+            inactive_periods_count=0,
+            inactive_total_seconds=None,
+            inactive_longest_seconds=None,
+            congestion_index=None,
+            global_rssi_avg=None,
+            global_rssi_std=None,
             concurrency_peak=None,
             concurrency_peak_time=None,
             concurrency_average=None,
@@ -142,6 +172,9 @@ def analyze_continuous_flow(
     if working.empty:
         empty_frame = pd.DataFrame()
         empty_series = pd.Series(dtype="int64")
+        empty_inactive = pd.DataFrame(
+            columns=["start_time", "end_time", "duration_seconds", "gap_seconds", "gap_multiplier"]
+        )
         return ContinuousFlowResult(
             per_epc_summary=empty_frame,
             epc_timeline=empty_frame,
@@ -152,11 +185,20 @@ def analyze_continuous_flow(
             concurrency_timeline=empty_frame,
             read_continuity_rate=None,
             throughput_per_minute=None,
+            session_throughput=None,
             session_start=None,
             session_end=None,
             session_end_with_grace=None,
             session_duration_seconds=None,
             session_active_seconds=None,
+            tag_dwell_time_max=None,
+            inactive_periods=empty_inactive,
+            inactive_periods_count=0,
+            inactive_total_seconds=None,
+            inactive_longest_seconds=None,
+            congestion_index=None,
+            global_rssi_avg=None,
+            global_rssi_std=None,
             concurrency_peak=None,
             concurrency_peak_time=None,
             concurrency_average=None,
@@ -164,9 +206,20 @@ def analyze_continuous_flow(
 
     working = working.sort_values(["EPC", "Timestamp", "Antenna"]).reset_index(drop=True)
 
+    total_reads = int(working.shape[0])
+
+    global_rssi_avg: float | None = None
+    global_rssi_std: float | None = None
+    if "RSSI" in working.columns:
+        rssi_series = pd.to_numeric(working["RSSI"], errors="coerce").dropna()
+        if not rssi_series.empty:
+            global_rssi_avg = float(rssi_series.mean())
+            global_rssi_std = float(rssi_series.std(ddof=0))
+
     per_epc_records: list[dict[str, Any]] = []
     timeline_records: list[dict[str, Any]] = []
     per_epc_antennas: dict[str, set[int]] = {}
+    global_interval_max = 0.0
 
     for epc, group in working.groupby("EPC", sort=False):
         sorted_group = group.sort_values("Timestamp")
@@ -203,6 +256,9 @@ def analyze_continuous_flow(
 
         duration_present = float(intervals["duration"].sum()) if not intervals.empty else 0.0
         read_events = int(intervals.shape[0]) if not intervals.empty else 0
+        interval_max = float(intervals["duration"].max()) if not intervals.empty else 0.0
+        if interval_max > global_interval_max:
+            global_interval_max = interval_max
         first_seen = intervals["entry"].iloc[0] if not intervals.empty else None
         last_seen = intervals["exit"].iloc[-1] - window_td if not intervals.empty else None
 
@@ -251,14 +307,18 @@ def analyze_continuous_flow(
                 "final_antenna": final_antenna,
                 "direction_estimate": direction_estimate,
                 "rssi_std": rssi_std,
+                "max_interval_duration": interval_max,
             }
         )
 
     per_epc_summary = pd.DataFrame(per_epc_records)
+    tag_dwell_time_max: float | None = None
     if not per_epc_summary.empty:
         per_epc_summary = per_epc_summary.sort_values(
             by=["first_time", "EPC"], na_position="last"
         ).reset_index(drop=True)
+    if global_interval_max > 0:
+        tag_dwell_time_max = float(global_interval_max)
 
     epc_timeline = pd.DataFrame(timeline_records)
     if not epc_timeline.empty:
@@ -299,6 +359,56 @@ def analyze_continuous_flow(
         session_duration_seconds = float(
             max((session_end_with_grace - session_start).total_seconds(), 0.0)
         )
+
+    threshold_td = window_td * 5
+    inactive_records: list[dict[str, Any]] = []
+    timestamps_sorted = (
+        working["Timestamp"].sort_values().dropna().drop_duplicates()
+        if "Timestamp" in working.columns
+        else pd.Series(dtype="datetime64[ns]")
+    )
+    if not timestamps_sorted.empty:
+        previous_ts = timestamps_sorted.iloc[0]
+        for current_ts in timestamps_sorted.iloc[1:]:
+            if previous_ts is None or current_ts is None:
+                previous_ts = current_ts
+                continue
+            gap = current_ts - previous_ts
+            if pd.isna(gap):
+                previous_ts = current_ts
+                continue
+            if gap > threshold_td:
+                start_idle = previous_ts + window_td
+                duration_seconds = (current_ts - start_idle).total_seconds()
+                if duration_seconds < 0:
+                    duration_seconds = 0.0
+                gap_seconds = gap.total_seconds()
+                inactive_records.append(
+                    {
+                        "start_time": start_idle,
+                        "end_time": current_ts,
+                        "duration_seconds": float(duration_seconds),
+                        "gap_seconds": float(gap_seconds),
+                        "gap_multiplier": float(gap_seconds / window_seconds)
+                        if window_seconds
+                        else None,
+                    }
+                )
+            previous_ts = current_ts
+
+    inactive_periods = pd.DataFrame(inactive_records)
+    if not inactive_periods.empty:
+        inactive_periods = inactive_periods.sort_values("start_time").reset_index(drop=True)
+
+    inactive_periods_count = int(inactive_periods.shape[0]) if not inactive_periods.empty else 0
+    inactive_total_seconds: float | None
+    inactive_longest_seconds: float | None
+    if inactive_periods_count:
+        inactive_total_seconds = float(inactive_periods["duration_seconds"].sum())
+        inactive_longest_seconds = float(inactive_periods["duration_seconds"].max())
+    else:
+        inactive_total_seconds = 0.0
+        inactive_longest_seconds = None
 
     concurrency_timeline = pd.DataFrame()
     session_active_seconds: float | None = None
@@ -389,15 +499,21 @@ def analyze_continuous_flow(
     ):
         read_continuity_rate = (session_active_seconds / session_duration_seconds) * 100.0
 
+    congestion_index: float | None = None
+    if session_active_seconds and session_active_seconds > 0:
+        congestion_index = float(total_reads / session_active_seconds)
+
     throughput_per_minute: float | None = None
+    session_throughput: float | None = None
     if session_duration_seconds and session_duration_seconds > 0:
-        total_epcs = (
-            int(per_epc_summary.shape[0])
-            if not per_epc_summary.empty
-            else int(working["EPC"].nunique())
-        )
         minutes = session_duration_seconds / 60.0
         if minutes > 0:
+            session_throughput = float(total_reads / minutes)
+            total_epcs = (
+                int(per_epc_summary.shape[0])
+                if not per_epc_summary.empty
+                else int(working["EPC"].nunique())
+            )
             throughput_per_minute = float(total_epcs / minutes)
 
     anomalous_epcs = _detect_anomalous_durations(per_epc_summary, window_seconds)
@@ -413,11 +529,20 @@ def analyze_continuous_flow(
         concurrency_timeline=concurrency_timeline,
         read_continuity_rate=read_continuity_rate,
         throughput_per_minute=throughput_per_minute,
+        session_throughput=session_throughput,
         session_start=session_start,
         session_end=session_end,
         session_end_with_grace=session_end_with_grace,
         session_duration_seconds=session_duration_seconds,
         session_active_seconds=session_active_seconds,
+        tag_dwell_time_max=tag_dwell_time_max,
+        inactive_periods=inactive_periods,
+        inactive_periods_count=inactive_periods_count,
+        inactive_total_seconds=inactive_total_seconds,
+        inactive_longest_seconds=inactive_longest_seconds,
+        congestion_index=congestion_index,
+        global_rssi_avg=global_rssi_avg,
+        global_rssi_std=global_rssi_std,
         concurrency_peak=concurrency_peak,
         concurrency_peak_time=concurrency_peak_time,
         concurrency_average=concurrency_average,

@@ -12,6 +12,7 @@
   while enriching the executive dashboard with KPIs from both structured and
   continuous analyses.
 - Expanded continuous-mode analysis with RSSI variability per EPC, concurrency timelines, read continuity, throughput, and session duration KPIs surfaced across summaries, Excel (Fluxo_Contínuo/Indicadores_Executivos), and log exports.
+- Added continuous-mode KPIs for TagDwellTimeMax, session throughput (reads/min), idle gaps (>5× janela), congestion index, and global RSSI statistics, wiring them through Excel (`Fluxo_Contínuo`/`Indicadores_Executivos`), textual summaries, and the consolidated executive workbook.
 - Added regression tests covering continuous-mode metric calculations, including overlapping and sparse read scenarios, to prevent future regressions.
 - Implemented structured-mode KPI calculations (coverage rate, antenna balance, RSSI stability, redundancy) and exposed them in the `Structured_KPIs` worksheet and textual summaries.
 - Added the `participation_pct` percentage column to the antenna summary, exposing how much each antenna contributes to the total number of reads.
