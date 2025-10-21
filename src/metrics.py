@@ -10,7 +10,7 @@ def antenna_mode(series: pd.Series):
         return None
     counts = Counter(s)
     maxc = max(counts.values())
-    # menor ID em caso de empate
+    # Choose the lowest antenna ID when there is a tie
     return min([a for a,c in counts.items() if c==maxc])
 
 def summarize_by_epc(df: pd.DataFrame) -> pd.DataFrame:
@@ -23,14 +23,14 @@ def summarize_by_epc(df: pd.DataFrame) -> pd.DataFrame:
         first_time=("Timestamp","min"),
         last_time=("Timestamp","max"),
     )
-    # primeira/última antena por tempo
+    # Determine first/last antenna based on timestamp ordering
     first_rows = df.sort_values(["EPC","Timestamp"]).groupby("EPC", as_index=False).first()[["EPC","Antenna"]].rename(columns={"Antenna":"antenna_first"})
     last_rows  = df.sort_values(["EPC","Timestamp"]).groupby("EPC", as_index=False).last()[["EPC","Antenna"]].rename(columns={"Antenna":"antenna_last"})
     summary = summary.merge(first_rows, on="EPC", how="left").merge(last_rows, on="EPC", how="left")
-    # antena mais frequente
+    # Most frequent antenna per EPC
     modes = df.groupby("EPC")["Antenna"].apply(antenna_mode).reset_index(name="antenna_mode")
     summary = summary.merge(modes, on="EPC", how="left")
-    # sufixo
+    # EPC suffix for matching layout positions
     summary["EPC_suffix3"] = summary["EPC"].astype(str).apply(suffix3).str.upper()
     return summary
 

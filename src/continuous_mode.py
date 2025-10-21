@@ -61,7 +61,7 @@ def analyze_continuous_flow(
     """
 
     if window_seconds <= 0:
-        raise ValueError("window_seconds deve ser positivo para análise contínua.")
+        raise ValueError("window_seconds must be positive for continuous analysis.")
 
     if df.empty:
         empty_frame = pd.DataFrame()
@@ -79,7 +79,7 @@ def analyze_continuous_flow(
     missing = required_columns - set(df.columns)
     if missing:
         raise ValueError(
-            "DataFrame para análise contínua não possui colunas obrigatórias: "
+            "DataFrame for continuous analysis is missing required columns: "
             + ", ".join(sorted(missing))
         )
 
@@ -90,7 +90,7 @@ def analyze_continuous_flow(
     invalid_ts = working["Timestamp"].isna()
     if invalid_ts.any():
         LOGGER.warning(
-            "Ignorando %s leituras com Timestamp inválido na análise contínua.",
+            "Ignoring %s reads with invalid Timestamp during continuous analysis.",
             int(invalid_ts.sum()),
         )
         working = working.loc[~invalid_ts]
@@ -104,7 +104,7 @@ def analyze_continuous_flow(
             epcs_per_minute=empty_series,
             average_dwell_seconds=None,
             anomalous_epcs=[],
-            inconsistency_flags={"dados_invalidos": ["Sem timestamps válidos"]},
+            inconsistency_flags={"invalid_data": ["No valid timestamps"]},
         )
 
     working = working.sort_values(["EPC", "Timestamp", "Antenna"]).reset_index(drop=True)
@@ -289,7 +289,7 @@ def _detect_anomalous_durations(
     anomalous = per_epc_summary.loc[mask, "EPC"].astype(str).tolist()
     if anomalous:
         LOGGER.info(
-            "Detectadas %s EPC(s) com duração anômala (limites %.2fs - %.2fs)",
+            "Detected %s EPC(s) with anomalous dwell time (bounds %.2fs - %.2fs)",
             len(anomalous),
             lower,
             upper,
@@ -307,7 +307,7 @@ def _detect_inconsistencies(
 
     inconsistency_flags: dict[str, list[str]] = {
         "epcs_only_top_antennas": [],
-        "epcs_sem_antena": [],
+        "epcs_without_antenna": [],
     }
 
     all_antennas = sorted({a for antennas in per_epc_antennas.values() for a in antennas})
@@ -319,7 +319,7 @@ def _detect_inconsistencies(
 
     for epc, antennas in per_epc_antennas.items():
         if not antennas:
-            inconsistency_flags["epcs_sem_antena"].append(epc)
+            inconsistency_flags["epcs_without_antenna"].append(epc)
             continue
         if top_antennas and antennas.issubset(top_antennas) and len(top_antennas) < len(all_antennas):
             inconsistency_flags["epcs_only_top_antennas"].append(epc)

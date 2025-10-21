@@ -23,7 +23,7 @@ This document provides **guidelines for AI agents** (Codex, Responses API, or As
 ```
 ItemTestAnalyzer/
 ├── src/
-│   ├── analisar_itemtest.py     ← Main CLI entry point
+│   ├── itemtest_analyzer.py     ← Main CLI entry point
 │   ├── parser.py                ← Parses Impinj ItemTest CSV logs
 │   ├── metrics.py               ← Computes EPC and antenna statistics
 │   ├── pallet_layout.py         ← Handles optional pallet layout reference
@@ -31,11 +31,10 @@ ItemTestAnalyzer/
 │   ├── plots.py                 ← Generates charts using matplotlib
 │   └── report.py                ← Builds Excel reports with xlsxwriter
 ├── samples/
-│   ├── Teste_Estruturado.csv
-│   ├── Teste_Continuo.csv
-│   └── Layout_Pallet_Exemplo.xlsx
+│   ├── Sample_ItemTest.csv
+│   └── Sample_Pallet_Layout.xlsx
 ├── output/
-│   ├── graficos/
+│   ├── figures/
 │   └── logs/
 ├── requirements.txt
 ├── run.bat
@@ -60,15 +59,15 @@ An AI agent working on this repository may:
 
 ### 🧱 Must Preserve
 
-* CLI entrypoint in `src/analisar_itemtest.py`
+* CLI entrypoint in `src/itemtest_analyzer.py`
 * Parameter usage:
 
   ```bash
-  python src/analisar_itemtest.py --input <input_dir> --output <output_dir> [--layout <layout_file>] [--mode <structured|continuous>] [--window <seconds>]
+  python src/itemtest_analyzer.py --input <input_dir> --output <output_dir> [--layout <layout_file>] [--mode <structured|continuous>] [--window <seconds>]
   ```
 * Windows 11 compatibility (UTF-8, spaces in paths)
 * Backward compatibility with previous CSV format (Impinj ItemTest)
-* Excel output consistency across modes (`Resumo_por_EPC`, `Leituras_por_Antena`, etc.)
+* Excel output consistency across modes (`Summary_by_EPC`, `Reads_by_Antenna`, etc.)
 
 ---
 
@@ -87,7 +86,7 @@ An AI agent working on this repository may:
 ### Step 2 — Structured Mode (with layout)
 
 * Associate EPCs or suffixes with physical pallet positions.
-* Generate sheet `Posicoes_Pallet` and calculate coverage rate.
+* Generate sheet `Pallet_Positions` and calculate coverage rate.
 * Mark missing tags and compute read distribution by side and height.
 
 ---
@@ -121,11 +120,11 @@ When `--mode continuous` is active or no layout file is provided:
 
 **Excel outputs:**
 
-* `Resumo_por_EPC` — all EPC stats
-* `Leituras_por_Antena` — per-antenna performance
-* `Fluxo_Contínuo` — (only in continuous mode) EPC entry/exit timeline
+* `Summary_by_EPC` — all EPC stats
+* `Reads_by_Antenna` — per-antenna performance
+* `Continuous_Flow` — (only in continuous mode) EPC entry/exit timeline
 * `Metadata` — reader/session info
-* `Posicoes_Pallet` — (only if layout available)
+* `Pallet_Positions` — (only if layout available)
 
 **Charts:**
 
@@ -152,7 +151,7 @@ When `--mode continuous` is active or no layout file is provided:
 | Add flow detection    | `continuous_mode.py`   | Implement EPC presence tracking and timing logic |
 | Add new chart type    | `plots.py`             | Visualize movement, heatmaps, or trends          |
 | Modify Excel layout   | `report.py`            | Add new worksheets or format summaries           |
-| Add CLI options       | `analisar_itemtest.py` | Extend with `--mode` or `--window`               |
+| Add CLI options       | `itemtest_analyzer.py` | Extend with `--mode` or `--window`               |
 | Update parsing        | `parser.py`            | Adjust CSV header recognition or metadata logic  |
 | Expand layout mapping | `pallet_layout.py`     | Handle multi-pallet or dynamic layouts           |
 

@@ -19,9 +19,12 @@ HOSTNAME_ALIASES = (
 )
 
 def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
-    """
-    Lê CSV exportado pelo Impinj ItemTest com cabeçalhos comentados começando por //
-    Retorna (df, metadata_dict)
+    """Read an Impinj ItemTest CSV export with ``//`` metadata headers.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, dict]
+        DataFrame with the cleaned reads and a metadata dictionary.
     """
     raw_lines = Path(path).read_text(encoding="utf-8", errors="ignore").splitlines()
     header_idx = None
@@ -37,8 +40,8 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
             header_idx = i
             break
     if header_idx is None:
-        raise RuntimeError(f"Não foi possível localizar o cabeçalho de dados em {path}")
-    # parse metadata key=value from meta_lines except the last header line
+        raise RuntimeError(f"Unable to locate the data header in {path}")
+    # Parse metadata key=value entries from comment lines, ignoring the header row
     if meta_lines and "Timestamp" in meta_lines[-1] and "EPC" in meta_lines[-1]:
         meta_lines = meta_lines[:-1]
 
@@ -108,17 +111,17 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
         else:
             metadata["PowersInDbm"] = parsed_pairs["PowersInDbm"].strip()
 
-    # build CSV string removing the '//' of header
+    # Build a CSV string removing the leading '//' from the header line
     csv_lines = raw_lines[header_idx:]
     if not csv_lines:
-        raise RuntimeError("Arquivo CSV não possui linhas de dados após o cabeçalho.")
+        raise RuntimeError("CSV file does not contain data rows after the header.")
 
     header_line = csv_lines[0]
     if header_line.startswith("//"):
         header_line = header_line[2:].lstrip()
 
-    # o arquivo de exemplo mistura cabeçalho com vírgulas e dados com ponto e vírgula;
-    # alinhe o cabeçalho ao delimitador detectado nas primeiras linhas de dados
+    # Example files mix comma-separated headers with semicolon-separated data.
+    # Align the header delimiter with the first detected data line delimiter.
     data_line = next(
         (line for line in csv_lines[1:] if line and not line.lstrip().startswith("//")),
         "",
@@ -130,7 +133,7 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
 
     csv_str = "\n".join([normalized_header, *csv_lines[1:]])
 
-    # detect delimiter automatically while supporting decimal commas from ItemTest exports
+    # Detect the delimiter automatically while supporting decimal commas from ItemTest exports
     read_buffer = io.StringIO(csv_str)
     try:
         df = pd.read_csv(read_buffer, sep=None, engine="python", decimal=",")
@@ -138,10 +141,10 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
         # fall back to semicolon-separated parsing (common in PT-BR locale exports)
         df = pd.read_csv(io.StringIO(csv_str), sep=";", engine="python", decimal=",")
 
-    # normalize columns
+    # Normalise columns
     df.columns = [c.strip() for c in df.columns]
 
-    # coerce numeric
+    # Coerce numeric columns where possible
     for col in ["RSSI", "Antenna", "Frequency", "PhaseAngle", "DopplerFrequency", "CRHandle"]:
         if col in df.columns:
             series = df[col]
@@ -151,9 +154,9 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
     if "Timestamp" in df.columns:
         df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
 
-    # clean EPCs: remove IP-like and keep only long hex EPCs
+    # Clean EPCs: remove IP-like entries and keep only long hexadecimal EPCs
     if "EPC" not in df.columns:
-        raise RuntimeError("Coluna EPC ausente no CSV.")
+        raise RuntimeError("EPC column missing from CSV.")
     df["EPC"] = df["EPC"].astype(str).str.strip()
     df = df[~df["EPC"].str.match(IPV4_RE, na=False)]
     df = df[df["EPC"].str.match(HEX_EPC_MIN24, na=False)]

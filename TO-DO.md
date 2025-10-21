@@ -10,14 +10,14 @@
 | 04 | Add RSSI standard deviation per EPC | ⚡ Medium | Developer | New column in `metrics.py` |
 | 05 | Export consolidated CSV for Power BI | ⚡ Medium | Developer | Combine summaries across all CSVs |
 | 06 | Implement summary PDF generation | 🧩 Medium | AI Agent | Use reportlab or matplotlib to create executive report |
-| 07 | Add logging with timestamps and error capture | ✅ Done | Developer | Logging centralizado grava INFO/ERROR em `output/logs/<data>_analisar_itemtest.log` |
+| 07 | Add logging with timestamps and error capture | ✅ Done | Developer | Logging centralizado grava INFO/ERROR em `output/logs/<data>_itemtest_analyzer.log` |
 | 08 | Enhance CLI with `--merge` option | 🧩 Medium | Developer | Merge multiple test summaries into one Excel |
 | 09 | Improve metadata parsing robustness | ✅ Done | Developer | Completed: parser now normalizes composite header metadata fields |
 | 10 | Unit tests for all core modules | ⚙️ Low | Developer | Use pytest with sample data |
 | 11 | Add participation percentage per antenna | ✅ Done | AI Agent | `participation_pct` now available in antenna summary and Excel report |
 | 12 | Allow expected EPC list without layout | ✅ Done | AI Agent | New `--expected` option loads EPC/suffix presets and flags unexpected tags |
 | 13 | Generate per-file textual summary | ✅ Done | AI Agent | Prints metadata, per-antenna stats, and layout coverage in the logs |
-| 14 | Garantir execução do CLI como módulo ou script | ✅ Done | Developer | Ajustado bootstrap em `analisar_itemtest.py` para configurar `sys.path` automaticamente |
+| 14 | Garantir execução do CLI como módulo ou script | ✅ Done | Developer | Ajustado bootstrap em `itemtest_analyzer.py` para configurar `sys.path` automaticamente |
 | 15 | Corrigir parser para CSV com `;` e decimal `,` | ✅ Done | AI Agent | Parser ajustado e teste de regressão cobrindo EPCs e métricas |
 | 16 | Garantir fallback de Hostname no parser | ✅ Done | AI Agent | Hostname passa a usar `ReaderName` ou dados da coluna para alimentar relatórios |
 

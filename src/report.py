@@ -55,11 +55,12 @@ def write_excel(
             sample = ", ".join(anomalous[:5])
             suffix = " ..." if len(anomalous) > 5 else ""
             lines.append(
-                f"EPCs com permanência atípica ({len(anomalous)}): {sample}{suffix}"
+                f"EPCs with atypical dwell time ({len(anomalous)}): {sample}{suffix}"
             )
         flag_labels = {
-            "epcs_only_top_antennas": "EPCs concentrados em antenas superiores",
-            "epcs_sem_antena": "EPCs sem antena associada",
+            "epcs_only_top_antennas": "EPCs restricted to upper antennas",
+            "epcs_without_antenna": "EPCs without an identified antenna",
+            "invalid_data": "Invalid data encountered",
         }
         for key, values in (metrics_info.get("inconsistency_flags") or {}).items():
             if not values:
@@ -71,16 +72,16 @@ def write_excel(
         return lines
 
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
-        summary_epc.to_excel(writer, index=False, sheet_name="Resumo_por_EPC")
+        summary_epc.to_excel(writer, index=False, sheet_name="Summary_by_EPC")
         unexpected_df = unexpected
         if unexpected_df is None:
             unexpected_df = pd.DataFrame(columns=summary_epc.columns)
-        unexpected_df.to_excel(writer, index=False, sheet_name="EPCs_inesperados")
-        ant_counts.to_excel(writer, index=False, sheet_name="Leituras_por_Antena")
+        unexpected_df.to_excel(writer, index=False, sheet_name="Unexpected_EPCs")
+        ant_counts.to_excel(writer, index=False, sheet_name="Reads_by_Antenna")
         if positions_df is not None:
-            positions_df.to_excel(writer, index=False, sheet_name="Posicoes_Pallet")
+            positions_df.to_excel(writer, index=False, sheet_name="Pallet_Positions")
         if metadata:
-            md_df = pd.DataFrame(list(metadata.items()), columns=["Chave", "Valor"])
+            md_df = pd.DataFrame(list(metadata.items()), columns=["Key", "Value"])
             md_df.to_excel(writer, index=False, sheet_name="Metadata")
 
         metrics_rows: list[dict[str, object]] = []
@@ -88,16 +89,16 @@ def write_excel(
         if average_dwell is not None and not pd.isna(average_dwell):
             metrics_rows.append(
                 {
-                    "Indicador": "Tempo médio de permanência (s)",
-                    "Valor": round(float(average_dwell), 2),
+                    "Metric": "Average dwell time (s)",
+                    "Value": round(float(average_dwell), 2),
                 }
             )
         total_events = metrics_info.get("total_events")
         if total_events is not None and not pd.isna(total_events):
             metrics_rows.append(
                 {
-                    "Indicador": "Eventos de entrada/saída",
-                    "Valor": int(total_events),
+                    "Metric": "Entry/exit events",
+                    "Value": int(total_events),
                 }
             )
         dominant = metrics_info.get("dominant_antenna")
@@ -110,8 +111,8 @@ def write_excel(
                 display_dominant = dominant
             metrics_rows.append(
                 {
-                    "Indicador": "Antena dominante",
-                    "Valor": display_dominant,
+                    "Metric": "Dominant antenna",
+                    "Value": display_dominant,
                 }
             )
         peak_value = metrics_info.get("epcs_per_minute_peak")
@@ -126,20 +127,20 @@ def write_excel(
                     peak_label = peak_ts.strftime("%Y-%m-%d %H:%M")
                 except Exception:
                     peak_label = str(peak_time)
-                value_repr = f"{int(peak_value)} às {peak_label}"
+                value_repr = f"{int(peak_value)} at {peak_label}"
             else:
                 value_repr = int(peak_value)
             metrics_rows.append(
                 {
-                    "Indicador": "Pico de EPCs ativos/min",
-                    "Valor": value_repr,
+                    "Metric": "Peak active EPCs/min",
+                    "Value": value_repr,
                 }
             )
 
         alerts_lines = _build_alert_lines()
 
         if metrics_rows or alerts_lines or timeline_df is not None:
-            sheet_name = "Fluxo_Contínuo"
+            sheet_name = "Continuous_Flow"
             start_row = 0
             if metrics_rows:
                 metrics_df = pd.DataFrame(metrics_rows)
@@ -151,7 +152,7 @@ def write_excel(
                 )
                 start_row += len(metrics_rows) + 2
             if alerts_lines:
-                alerts_df = pd.DataFrame({"Alertas": alerts_lines})
+                alerts_df = pd.DataFrame({"Alerts": alerts_lines})
                 alerts_df.to_excel(
                     writer,
                     index=False,
@@ -169,7 +170,7 @@ def write_excel(
                 )
             elif start_row == 0:
                 pd.DataFrame(
-                    {"Mensagem": ["Sem dados de fluxo contínuo disponíveis."]}
+                    {"Message": ["No continuous flow data available."]}
                 ).to_excel(
                     writer,
                     index=False,
