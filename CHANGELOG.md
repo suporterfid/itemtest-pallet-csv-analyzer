@@ -4,6 +4,7 @@
 
 ### ✨ Features
 - Added the `participation_pct` percentage column to the antenna summary, exposing how much each antenna contributes to the total number of reads.
+- Introduced configurable expected EPC/suffix lists (via `--expected`) to classify records without a pallet layout, flagging each EPC as `Esperado` or `Inesperado` and always generating the `EPCs_inesperados` worksheet.
 
 ## v0.1 — First AI-generated Release (2025-10-21)
 

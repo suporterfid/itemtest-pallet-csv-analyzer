@@ -2,6 +2,8 @@
 from __future__ import annotations
 import argparse, sys
 from pathlib import Path
+import re
+from typing import Iterable
 import pandas as pd
 
 from .parser import read_itemtest_csv
@@ -10,12 +12,65 @@ from .plots import plot_reads_by_epc, plot_reads_by_antenna, boxplot_rssi_by_ant
 from .report import write_excel
 from .pallet_layout import read_layout, build_expected_sets, map_position_by_suffix
 
-def process_file(csv_path: Path, out_dir: Path, layout_df: pd.DataFrame|None):
+HEX_EPC_PATTERN = re.compile(r"^[0-9A-F]{24,}$", re.IGNORECASE)
+
+def _tokenize_expected_source(text: str) -> list[str]:
+    """Split raw text into individual EPC or suffix tokens."""
+    tokens: list[str] = []
+    for line in text.splitlines():
+        clean = line.split("#", 1)[0].strip()
+        if not clean:
+            continue
+        for part in re.split(r"[\s,;]+", clean):
+            part = part.strip()
+            if part:
+                tokens.append(part)
+    return tokens
+
+def _build_expected_sets(tokens: Iterable[str]) -> dict[str, set[str]]:
+    """Return normalized sets of expected EPCs (full and suffix) from tokens."""
+    suffixes: set[str] = set()
+    full: set[str] = set()
+    for token in tokens:
+        cleaned = token.strip()
+        if not cleaned:
+            continue
+        upper_token = cleaned.upper()
+        if HEX_EPC_PATTERN.match(upper_token):
+            full.add(upper_token)
+        elif len(upper_token) >= 3:
+            suffixes.add(upper_token[-3:])
+    return {"expected_suffixes": suffixes, "expected_full": full}
+
+def load_expected_tokens(source: str | None) -> dict[str, set[str]]:
+    """Load expected EPC/suffix tokens from a file path or inline string."""
+    if not source:
+        return {"expected_suffixes": set(), "expected_full": set()}
+    candidate = Path(source)
+    if candidate.exists():
+        text = candidate.read_text(encoding="utf-8", errors="ignore")
+        tokens = _tokenize_expected_source(text)
+    else:
+        tokens = _tokenize_expected_source(source)
+    return _build_expected_sets(tokens)
+
+def process_file(
+    csv_path: Path,
+    out_dir: Path,
+    layout_df: pd.DataFrame | None,
+    expected_registry: dict[str, set[str]] | None = None,
+):
     df, metadata = read_itemtest_csv(str(csv_path))
 
     # métricas
     summary = summarize_by_epc(df)
     ant_counts = summarize_by_antenna(df)
+
+    expected_suffixes: set[str] = set()
+    expected_full: set[str] = set()
+    if expected_registry:
+        expected_suffixes.update(expected_registry.get("expected_suffixes", set()))
+        expected_full.update(expected_registry.get("expected_full", set()))
 
     # se layout presente, anotar posição por sufixo
     positions_df = None
@@ -33,18 +88,20 @@ def process_file(csv_path: Path, out_dir: Path, layout_df: pd.DataFrame|None):
                     positions.append({"Linha":linha,"Face":face,"Sufixo":suf,"Lido": bool(found),"Total_leituras": int(found)})
         positions_df = pd.DataFrame(positions)
 
-    # identificar EPCs inesperados? Se layout ausente, pula. Se presente, usa sets.
-    unexpected = pd.DataFrame()
-    if layout_df is not None:
         sets = build_expected_sets(layout_df)
-        expected_suf = sets["expected_suffixes"]
-        expected_full = sets["expected_full"]
-        def is_expected(row):
-            epc = str(row["EPC"]).upper()
-            suf = str(row["EPC_suffix3"]).upper()
-            return (epc in expected_full) or (suf in expected_suf)
-        summary["expected_suffix"] = summary.apply(is_expected, axis=1)
-        unexpected = summary[~summary["expected_suffix"]].copy()
+        expected_suffixes.update(sets["expected_suffixes"])
+        expected_full.update(sets["expected_full"])
+
+    # identificar EPCs esperados/inesperados combinando layout e lista configurada
+    epc_upper = summary["EPC"].astype(str).str.upper()
+    suffix_upper = summary["EPC_suffix3"].astype(str).str.upper()
+    if expected_full or expected_suffixes:
+        mask_expected = epc_upper.isin(expected_full) | suffix_upper.isin(expected_suffixes)
+    else:
+        mask_expected = pd.Series(True, index=summary.index)
+    summary["EPC_esperado"] = mask_expected
+    summary["Status_EPC"] = summary["EPC_esperado"].map({True: "Esperado", False: "Inesperado"})
+    unexpected = summary[~mask_expected].copy()
 
     # gráficos
     fig_dir = out_dir/"graficos"/csv_path.stem
@@ -62,6 +119,7 @@ def main():
     ap.add_argument("--input", required=True, help="Pasta contendo CSVs do ItemTest")
     ap.add_argument("--output", required=True, help="Pasta para salvar resultados")
     ap.add_argument("--layout", required=False, help="Arquivo de layout do pallet (CSV/XLSX/MD)")
+    ap.add_argument("--expected", required=False, help="Arquivo ou lista de EPCs/sufixos esperados para uso sem layout")
     args = ap.parse_args()
 
     in_dir = Path(args.input)
@@ -69,6 +127,11 @@ def main():
     layout_df = None
     if args.layout:
         layout_df = read_layout(args.layout)
+    try:
+        expected_registry = load_expected_tokens(args.expected)
+    except Exception as exc:
+        print(f"Erro ao carregar lista de EPCs esperados: {exc}")
+        sys.exit(1)
 
     csv_files = sorted(in_dir.glob("*.csv"))
     if not csv_files:
@@ -78,7 +141,7 @@ def main():
     results = []
     for f in csv_files:
         print(f"Processando {f.name} ...")
-        res = process_file(f, out_dir, layout_df)
+        res = process_file(f, out_dir, layout_df, expected_registry=expected_registry)
         results.append(res)
     print("Concluído. Arquivos gerados:")
     for r in results:
