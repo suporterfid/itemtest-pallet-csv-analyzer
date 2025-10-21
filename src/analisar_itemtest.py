@@ -54,6 +54,155 @@ def load_expected_tokens(source: str | None) -> dict[str, set[str]]:
         tokens = _tokenize_expected_source(source)
     return _build_expected_sets(tokens)
 
+def compose_summary_text(
+    csv_path: Path,
+    metadata: dict,
+    summary: pd.DataFrame,
+    ant_counts: pd.DataFrame,
+    positions_df: pd.DataFrame | None,
+) -> str:
+    """Compose a human-readable summary mixing metadata, antenna stats and layout coverage."""
+
+    total_epcs = int(summary.shape[0]) if summary is not None else 0
+    total_reads = int(summary["total_reads"].sum()) if not summary.empty else 0
+
+    expected_count = None
+    unexpected_count = None
+    if "EPC_esperado" in summary.columns:
+        expected_count = int(summary["EPC_esperado"].sum())
+        unexpected_count = int((~summary["EPC_esperado"]).sum())
+
+    def _format_timestamp(value) -> str | None:
+        if value is None:
+            return None
+        try:
+            ts = pd.to_datetime(value)
+        except Exception:
+            return str(value)
+        if pd.isna(ts):
+            return None
+        try:
+            if ts.tzinfo is not None:
+                ts = ts.tz_convert("UTC").tz_localize(None)
+        except (TypeError, AttributeError):
+            # already naive or conversion not supported
+            pass
+        return ts.strftime("%Y-%m-%d %H:%M:%S")
+
+    first_seen = _format_timestamp(summary["first_time"].min()) if "first_time" in summary.columns else None
+    last_seen = _format_timestamp(summary["last_time"].max()) if "last_time" in summary.columns else None
+
+    metadata_lines: list[str] = []
+    hostname = metadata.get("Hostname")
+    if hostname:
+        metadata_lines.append(f"- Hostname: {hostname}")
+    mode_index = metadata.get("ModeIndex")
+    if mode_index is not None:
+        metadata_lines.append(f"- ModeIndex: {mode_index}")
+    session = metadata.get("Session")
+    if session is not None:
+        metadata_lines.append(f"- Sessão: {session}")
+    inventory_mode = metadata.get("InventoryMode")
+    if inventory_mode:
+        metadata_lines.append(f"- InventoryMode: {inventory_mode}")
+    antennas = metadata.get("AntennaIDs")
+    if antennas:
+        antenna_list = ", ".join(str(a) for a in antennas)
+        metadata_lines.append(f"- Antenas declaradas: {antenna_list}")
+    powers = metadata.get("PowersInDbm")
+    if isinstance(powers, dict) and powers:
+        formatted_powers = []
+        for ant_id, power in sorted(powers.items()):
+            if isinstance(power, (int, float)):
+                formatted_powers.append(f"Antena {ant_id}: {power:.1f} dBm")
+            else:
+                formatted_powers.append(f"Antena {ant_id}: {power}")
+        metadata_lines.append("- Potências declaradas: " + "; ".join(formatted_powers))
+    elif powers:
+        metadata_lines.append(f"- Potências declaradas: {powers}")
+    if not metadata_lines:
+        metadata_lines.append("- Nenhum metadado relevante encontrado.")
+
+    general_lines: list[str] = []
+    if expected_count is not None and unexpected_count is not None:
+        general_lines.append(
+            f"- EPCs únicos: {total_epcs} (esperados: {expected_count}, inesperados: {unexpected_count})"
+        )
+    else:
+        general_lines.append(f"- EPCs únicos: {total_epcs}")
+    general_lines.append(f"- Leituras totais: {total_reads}")
+    if first_seen and last_seen:
+        general_lines.append(f"- Janela de leitura: {first_seen} → {last_seen}")
+    elif first_seen:
+        general_lines.append(f"- Primeira leitura registrada em {first_seen}")
+    elif last_seen:
+        general_lines.append(f"- Última leitura registrada em {last_seen}")
+
+    antenna_lines: list[str] = []
+    if ant_counts is not None and not ant_counts.empty:
+        for row in ant_counts.itertuples(index=False):
+            antenna_id = getattr(row, "Antenna", "?")
+            reads = getattr(row, "total_reads", 0)
+            line = f"- Antena {antenna_id}: {reads} leituras"
+            participation = getattr(row, "participation_pct", None)
+            if participation is not None and not pd.isna(participation):
+                line += f" ({participation:.1f}%)"
+            rssi_avg = getattr(row, "rssi_avg", None)
+            if rssi_avg is not None and not pd.isna(rssi_avg):
+                line += f", RSSI médio {rssi_avg:.1f} dBm"
+            antenna_lines.append(line)
+    else:
+        antenna_lines.append("- Nenhuma leitura agregada por antena disponível.")
+
+    layout_lines: list[str] = []
+    if positions_df is None:
+        layout_lines.append("- Layout não fornecido.")
+    elif positions_df.empty:
+        layout_lines.append("- Layout fornecido, mas sem posições definidas.")
+    else:
+        total_positions = int(len(positions_df))
+        read_positions = int(positions_df["Lido"].sum())
+        coverage_pct = (read_positions / total_positions * 100) if total_positions else 0.0
+        layout_lines.append(
+            f"- Cobertura do layout: {read_positions} de {total_positions} posições ({coverage_pct:.1f}%)"
+        )
+        missing = positions_df[~positions_df["Lido"]]
+        if not missing.empty:
+            missing_records = (
+                missing[["Face", "Linha", "Sufixo"]]
+                .drop_duplicates()
+            )
+            descriptors: list[str] = []
+            for row in missing_records.itertuples(index=False):
+                face = getattr(row, "Face")
+                line = getattr(row, "Linha")
+                suffix = getattr(row, "Sufixo")
+                descriptors.append(f"{face} - Linha {line} ({suffix})")
+                if len(descriptors) == 5:
+                    break
+            extra = " ..." if len(missing_records) > 5 else ""
+            layout_lines.append(
+                f"- Posições sem leitura ({len(missing_records)}): " + "; ".join(descriptors) + extra
+            )
+        else:
+            layout_lines.append("- Todas as posições do layout foram cobertas pelas leituras.")
+
+    sections = [
+        ("Metadados principais", metadata_lines),
+        ("Indicadores gerais", general_lines),
+        ("Leituras por antena", antenna_lines),
+        ("Cobertura do layout", layout_lines),
+    ]
+
+    header = f"Resumo ItemTest — {csv_path.name}"
+    divider = "=" * len(header)
+    lines: list[str] = [header, divider]
+    for title, content in sections:
+        lines.append(title + ":")
+        lines.extend(content)
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
 def process_file(
     csv_path: Path,
     out_dir: Path,
@@ -102,6 +251,16 @@ def process_file(
     summary["EPC_esperado"] = mask_expected
     summary["Status_EPC"] = summary["EPC_esperado"].map({True: "Esperado", False: "Inesperado"})
     unexpected = summary[~mask_expected].copy()
+
+    # resumo textual
+    summary_text = compose_summary_text(csv_path, metadata, summary, ant_counts, positions_df)
+    print(summary_text)
+
+    log_dir = out_dir / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    summary_log = log_dir / f"{csv_path.stem}_resumo.txt"
+    summary_log.write_text(summary_text + "\n", encoding="utf-8")
+    print(f"Resumo salvo em: {summary_log}")
 
     # gráficos
     fig_dir = out_dir/"graficos"/csv_path.stem
