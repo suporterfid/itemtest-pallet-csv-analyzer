@@ -43,6 +43,59 @@ class TestComposeSummaryText(unittest.TestCase):
 
         self.assertIn("- Hostname: 192.168.68.100", summary_text)
 
+    def test_summary_highlights_continuous_new_metrics(self) -> None:
+        metadata: dict = {}
+        summary = pd.DataFrame(
+            {
+                "EPC": ["ABC"],
+                "total_reads": [5],
+                "first_time": [pd.Timestamp("2025-01-01T10:00:00")],
+                "last_time": [pd.Timestamp("2025-01-01T10:05:00")],
+            }
+        )
+        ant_counts = pd.DataFrame({"Antenna": [1], "total_reads": [5]})
+        continuous_details = {
+            "average_dwell_seconds": 3.2,
+            "tag_dwell_time_max": 6.4,
+            "read_continuity_rate": 75.0,
+            "total_events": 4,
+            "session_start": pd.Timestamp("2025-01-01T10:00:00"),
+            "session_end_with_grace": pd.Timestamp("2025-01-01T10:06:00"),
+            "session_duration_seconds": 360.0,
+            "session_active_seconds": 270.0,
+            "dominant_antenna": 1,
+            "throughput_per_minute": 12.5,
+            "session_throughput": 18.0,
+            "epcs_per_minute_mean": 10.0,
+            "concurrency_average": 2.0,
+            "congestion_index": 0.5,
+            "epcs_per_minute_peak": 12,
+            "epcs_per_minute_peak_time": pd.Timestamp("2025-01-01T10:03:00"),
+            "concurrency_peak": 3,
+            "concurrency_peak_time": pd.Timestamp("2025-01-01T10:02:00"),
+            "inactive_periods_count": 2,
+            "inactive_total_seconds": 48.0,
+            "inactive_longest_seconds": 30.0,
+            "global_rssi_avg": -50.5,
+            "global_rssi_std": 1.8,
+        }
+
+        summary_text = compose_summary_text(
+            Path("continuous.csv"),
+            metadata,
+            summary,
+            ant_counts,
+            positions_df=None,
+            analysis_mode="continuous",
+            continuous_details=continuous_details,
+        )
+
+        self.assertIn("Tempo máximo de permanência", summary_text)
+        self.assertIn("Throughput da sessão (leituras/min)", summary_text)
+        self.assertIn("Índice de congestão", summary_text)
+        self.assertIn("Períodos inativos (>5× janela)", summary_text)
+        self.assertIn("RSSI médio global", summary_text)
+
 
 class TestCliSummaryFlag(unittest.TestCase):
     """Validate the CLI parser wiring for the consolidated summary flag."""
@@ -111,13 +164,21 @@ class TestGenerateConsolidatedSummary(unittest.TestCase):
                 "unexpected_detected": 20,
                 "average_dwell_seconds": 2.5,
                 "throughput_per_minute": 30.0,
+                "session_throughput": 44.0,
                 "read_continuity_rate": 82.0,
                 "session_duration_seconds": 600.0,
                 "session_active_seconds": 520.0,
+                "tag_dwell_time_max": 7.5,
                 "concurrency_peak": 7,
                 "concurrency_average": 3.4,
                 "concurrency_peak_time": "2025-01-02 12:05:00",
                 "dominant_antenna": 3,
+                "inactive_periods_count": 3,
+                "inactive_total_seconds": 90.0,
+                "inactive_longest_seconds": 40.0,
+                "congestion_index": 0.35,
+                "global_rssi_avg": -48.2,
+                "global_rssi_std": 2.1,
                 "alerts_count": 1,
                 "analysis_window_seconds": 2.0,
                 "epcs_per_minute_mean": 28.0,
@@ -144,6 +205,10 @@ class TestGenerateConsolidatedSummary(unittest.TestCase):
         modes = set(per_file_df["mode"].str.lower())
         self.assertIn("structured", modes)
         self.assertIn("continuous", modes)
+        self.assertIn("session_throughput", per_file_df.columns)
+        self.assertIn("tag_dwell_time_max", per_file_df.columns)
+        self.assertIn("inactive_periods_count", per_file_df.columns)
+        self.assertIn("global_rssi_avg", per_file_df.columns)
 
         overall_row = overview_df.loc[overview_df["mode"].str.lower() == "overall"]
         self.assertEqual(int(overall_row.iloc[0]["total_reads"]), 300)
