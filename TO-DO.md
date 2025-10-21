@@ -16,6 +16,7 @@
 | 10 | Unit tests for all core modules | ⚙️ Low | Developer | Use pytest with sample data |
 | 11 | Add participation percentage per antenna | ✅ Done | AI Agent | `participation_pct` now available in antenna summary and Excel report |
 | 12 | Allow expected EPC list without layout | ✅ Done | AI Agent | New `--expected` option loads EPC/suffix presets and flags unexpected tags |
+| 13 | Generate per-file textual summary | ✅ Done | AI Agent | Prints metadata, per-antenna stats, and layout coverage in the logs |
 
 ---
 
