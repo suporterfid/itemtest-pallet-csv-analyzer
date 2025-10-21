@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import argparse, sys
+
+import argparse
+import logging
+import sys
+from datetime import datetime
 from pathlib import Path
 import re
 from typing import Iterable
+
 import pandas as pd
 
 from .parser import read_itemtest_csv
@@ -13,6 +18,44 @@ from .report import write_excel
 from .pallet_layout import read_layout, build_expected_sets, map_position_by_suffix
 
 HEX_EPC_PATTERN = re.compile(r"^[0-9A-F]{24,}$", re.IGNORECASE)
+
+
+def _configure_logging() -> tuple[logging.Logger, Path]:
+    """Configure file and console logging for the CLI module."""
+
+    base_dir = Path(__file__).resolve().parent.parent
+    log_dir = base_dir / "output" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime("%Y%m%d")
+    log_file = log_dir / f"{date_str}_{Path(__file__).stem}.log"
+
+    logger = logging.getLogger("itemtest.analisar")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        handler.close()
+
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger, log_file
+
+
+LOGGER, LOG_FILE_PATH = _configure_logging()
+
 
 def _tokenize_expected_source(text: str) -> list[str]:
     """Split raw text into individual EPC or suffix tokens."""
@@ -254,13 +297,13 @@ def process_file(
 
     # resumo textual
     summary_text = compose_summary_text(csv_path, metadata, summary, ant_counts, positions_df)
-    print(summary_text)
+    LOGGER.info("\n%s", summary_text)
 
     log_dir = out_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     summary_log = log_dir / f"{csv_path.stem}_resumo.txt"
     summary_log.write_text(summary_text + "\n", encoding="utf-8")
-    print(f"Resumo salvo em: {summary_log}")
+    LOGGER.info("Resumo salvo em: %s", summary_log)
 
     # gráficos
     fig_dir = out_dir/"graficos"/csv_path.stem
@@ -281,30 +324,33 @@ def main():
     ap.add_argument("--expected", required=False, help="Arquivo ou lista de EPCs/sufixos esperados para uso sem layout")
     args = ap.parse_args()
 
+    LOGGER.info("Arquivo de log configurado em: %s", LOG_FILE_PATH)
+
     in_dir = Path(args.input)
-    out_dir = Path(args.output); out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
     layout_df = None
     if args.layout:
         layout_df = read_layout(args.layout)
     try:
         expected_registry = load_expected_tokens(args.expected)
     except Exception as exc:
-        print(f"Erro ao carregar lista de EPCs esperados: {exc}")
+        LOGGER.error("Erro ao carregar lista de EPCs esperados: %s", exc)
         sys.exit(1)
 
     csv_files = sorted(in_dir.glob("*.csv"))
     if not csv_files:
-        print(f"Nenhum CSV encontrado em {in_dir}")
+        LOGGER.error("Nenhum CSV encontrado em %s", in_dir)
         sys.exit(1)
 
     results = []
     for f in csv_files:
-        print(f"Processando {f.name} ...")
+        LOGGER.info("Processando %s ...", f.name)
         res = process_file(f, out_dir, layout_df, expected_registry=expected_registry)
         results.append(res)
-    print("Concluído. Arquivos gerados:")
+    LOGGER.info("Concluído. Arquivos gerados:")
     for r in results:
-        print(" -", r)
+        LOGGER.info(" - %s", r)
 
 if __name__ == "__main__":
     main()
