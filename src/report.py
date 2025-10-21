@@ -2,6 +2,7 @@
 from __future__ import annotations
 import pandas as pd
 from pathlib import Path
+from typing import Callable
 
 def write_excel(
     out_path: str,
@@ -73,6 +74,21 @@ def write_excel(
                 per_minute_df["minute"], errors="coerce"
             )
 
+    concurrency_df = None
+    concurrency_info = metrics_info.get("concurrency_timeline")
+    if concurrency_info is not None:
+        if isinstance(concurrency_info, pd.DataFrame):
+            concurrency_df = concurrency_info.copy()
+        else:
+            concurrency_df = pd.DataFrame(concurrency_info)
+        if not concurrency_df.empty and "timestamp" in concurrency_df.columns:
+            concurrency_df = concurrency_df.sort_values("timestamp")
+            concurrency_df["timestamp"] = pd.to_datetime(
+                concurrency_df["timestamp"], errors="coerce"
+            )
+
+    executive_rows: list[dict[str, object]] = []
+
 
     def _build_alert_lines() -> list[str]:
         alerts = [str(alert) for alert in metrics_info.get("alerts", []) if alert]
@@ -99,6 +115,148 @@ def write_excel(
             suffix = " ..." if len(values) > 5 else ""
             lines.append(f"{label} ({len(values)}): {sample}{suffix}")
         return lines
+
+    def _format_timestamp(value: object) -> str:
+        if value is None:
+            return "N/A"
+        try:
+            ts = pd.to_datetime(value)
+        except Exception:
+            return str(value)
+        if pd.isna(ts):
+            return "N/A"
+        return ts.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _append_metric(
+        label: str, value: object, formatter: Callable[[object], object] | None = None
+    ) -> None:
+        if value is None:
+            if metrics_info:
+                metrics_rows.append({"Metric": label, "Value": "N/A"})
+            return
+        if isinstance(value, float) and pd.isna(value):
+            if metrics_info:
+                metrics_rows.append({"Metric": label, "Value": "N/A"})
+            return
+        if isinstance(value, pd.Timestamp) and pd.isna(value):
+            if metrics_info:
+                metrics_rows.append({"Metric": label, "Value": "N/A"})
+            return
+        formatted = formatter(value) if formatter else value
+        metrics_rows.append({"Metric": label, "Value": formatted})
+
+    def _append_executive(
+        label: str, value: object, formatter: Callable[[object], object] | None = None
+    ) -> None:
+        if value is None:
+            return
+        if isinstance(value, float) and pd.isna(value):
+            return
+        if isinstance(value, pd.Timestamp) and pd.isna(value):
+            return
+        formatted = formatter(value) if formatter else value
+        executive_rows.append({"Indicator": label, "Value": formatted})
+
+    total_epcs: int | None = None
+    if "EPC" in summary_epc.columns:
+        try:
+            total_epcs = int(summary_epc["EPC"].nunique())
+        except Exception:
+            total_epcs = None
+    elif not summary_epc.empty:
+        total_epcs = int(summary_epc.shape[0])
+    if total_epcs is not None:
+        _append_executive("Distinct EPCs", total_epcs, lambda value: int(value))
+
+    if "total_reads" in summary_epc.columns:
+        try:
+            total_reads_val = int(summary_epc["total_reads"].sum())
+            _append_executive("Total reads", total_reads_val, lambda value: int(value))
+        except Exception:
+            pass
+
+    _append_executive(
+        "Average dwell time (s)",
+        metrics_info.get("average_dwell_seconds"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Throughput (distinct EPCs/min)",
+        metrics_info.get("throughput_per_minute"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Read continuity rate (%)",
+        metrics_info.get("read_continuity_rate"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Session duration (s)",
+        metrics_info.get("session_duration_seconds"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Active time with EPCs (s)",
+        metrics_info.get("session_active_seconds"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Average concurrent EPCs",
+        metrics_info.get("concurrency_average"),
+        lambda value: round(float(value), 2),
+    )
+    peak_concurrency_exec = metrics_info.get("concurrency_peak")
+    if peak_concurrency_exec is not None and not pd.isna(peak_concurrency_exec):
+        peak_concurrency_time = metrics_info.get("concurrency_peak_time")
+        if peak_concurrency_time is not None:
+            peak_repr = f"{int(peak_concurrency_exec)} at {_format_timestamp(peak_concurrency_time)}"
+        else:
+            peak_repr = int(peak_concurrency_exec)
+        executive_rows.append({"Indicator": "Peak concurrent EPCs", "Value": peak_repr})
+
+    throughput_mean = metrics_info.get("epcs_per_minute_mean")
+    _append_executive(
+        "Average active EPCs/min",
+        throughput_mean,
+        lambda value: round(float(value), 2),
+    )
+
+    dominant_exec = metrics_info.get("dominant_antenna")
+    if dominant_exec is not None and str(dominant_exec) != "" and not (
+        isinstance(dominant_exec, float) and pd.isna(dominant_exec)
+    ):
+        try:
+            dominant_display = int(dominant_exec)
+        except (TypeError, ValueError):
+            dominant_display = dominant_exec
+        executive_rows.append({"Indicator": "Dominant antenna", "Value": dominant_display})
+
+    coverage_rate = structured_info.get("coverage_rate")
+    if coverage_rate is not None and not pd.isna(coverage_rate):
+        expected_total = structured_info.get("expected_total")
+        expected_found = structured_info.get("expected_found")
+        coverage_label = f"{float(coverage_rate):.2f}%"
+        if expected_total is not None and expected_found is not None:
+            coverage_label += f" ({int(expected_found)}/{int(expected_total)})"
+        executive_rows.append({"Indicator": "Coverage rate", "Value": coverage_label})
+
+    redundancy_exec = structured_info.get("tag_read_redundancy")
+    if redundancy_exec is not None and not pd.isna(redundancy_exec):
+        executive_rows.append(
+            {
+                "Indicator": "Tag read redundancy",
+                "Value": f"{float(redundancy_exec):.2f}×",
+            }
+        )
+
+    balance_exec = structured_info.get("antenna_balance")
+    if balance_exec is not None and not pd.isna(balance_exec):
+        executive_rows.append(
+            {
+                "Indicator": "Antenna balance (σ)",
+                "Value": f"{float(balance_exec):.2f}%",
+            }
+        )
 
     structured_rows: list[dict[str, object]] = []
     missing_expected_df = pd.DataFrame()
@@ -223,6 +381,20 @@ def write_excel(
             md_df = pd.DataFrame(list(metadata.items()), columns=["Key", "Value"])
             md_df.to_excel(writer, index=False, sheet_name="Metadata")
 
+        exec_sheet = "Indicadores_Executivos"
+        if executive_rows:
+            exec_df = pd.DataFrame(executive_rows)
+        else:
+            exec_df = pd.DataFrame(
+                [
+                    {
+                        "Indicator": "Message",
+                        "Value": "No executive indicators available.",
+                    }
+                ]
+            )
+        exec_df.to_excel(writer, index=False, sheet_name=exec_sheet)
+
         if structured_info:
             sheet_structured = "Structured_KPIs"
             structured_row = 0
@@ -291,36 +463,16 @@ def write_excel(
                 )
 
         metrics_rows: list[dict[str, object]] = []
-        average_dwell = metrics_info.get("average_dwell_seconds")
-        if average_dwell is not None and not pd.isna(average_dwell):
-            metrics_rows.append(
-                {
-                    "Metric": "Average dwell time (s)",
-                    "Value": round(float(average_dwell), 2),
-                }
-            )
-        elif metrics_info:
-            metrics_rows.append(
-                {
-                    "Metric": "Average dwell time (s)",
-                    "Value": "N/A",
-                }
-            )
-        total_events = metrics_info.get("total_events")
-        if total_events is not None and not pd.isna(total_events):
-            metrics_rows.append(
-                {
-                    "Metric": "Entry/exit events",
-                    "Value": int(total_events),
-                }
-            )
-        elif metrics_info:
-            metrics_rows.append(
-                {
-                    "Metric": "Entry/exit events",
-                    "Value": "N/A",
-                }
-            )
+        _append_metric(
+            "Average dwell time (s)",
+            metrics_info.get("average_dwell_seconds"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Entry/exit events",
+            metrics_info.get("total_events"),
+            lambda value: int(value),
+        )
         dominant = metrics_info.get("dominant_antenna")
         if dominant is not None and str(dominant) != "" and not (
             isinstance(dominant, float) and pd.isna(dominant)
@@ -342,33 +494,91 @@ def write_excel(
                     "Value": "N/A",
                 }
             )
-        mean_epcs = metrics_info.get("epcs_per_minute_mean")
-        if mean_epcs is not None and not pd.isna(mean_epcs):
-            metrics_rows.append(
-                {
-                    "Metric": "Average active EPCs/min",
-                    "Value": round(float(mean_epcs), 2),
-                }
-            )
+        _append_metric(
+            "Average active EPCs/min",
+            metrics_info.get("epcs_per_minute_mean"),
+            lambda value: round(float(value), 2),
+        )
         peak_value = metrics_info.get("epcs_per_minute_peak")
         if peak_value is not None and not pd.isna(peak_value):
             peak_time = metrics_info.get("epcs_per_minute_peak_time")
-            peak_label: str
             if peak_time is not None:
-                try:
-                    peak_ts = pd.to_datetime(peak_time)
-                    if pd.isna(peak_ts):
-                        raise ValueError
-                    peak_label = peak_ts.strftime("%Y-%m-%d %H:%M")
-                except Exception:
-                    peak_label = str(peak_time)
-                value_repr = f"{int(peak_value)} at {peak_label}"
+                value_repr = f"{int(peak_value)} at {_format_timestamp(peak_time)}"
             else:
                 value_repr = int(peak_value)
             metrics_rows.append(
                 {
                     "Metric": "Peak active EPCs/min",
                     "Value": value_repr,
+                }
+            )
+        elif metrics_info:
+            metrics_rows.append(
+                {
+                    "Metric": "Peak active EPCs/min",
+                    "Value": "N/A",
+                }
+            )
+        _append_metric(
+            "Throughput (distinct EPCs/min)",
+            metrics_info.get("throughput_per_minute"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Read continuity rate (%)",
+            metrics_info.get("read_continuity_rate"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Session start",
+            metrics_info.get("session_start"),
+            _format_timestamp,
+        )
+        _append_metric(
+            "Session end (last read)",
+            metrics_info.get("session_end"),
+            _format_timestamp,
+        )
+        _append_metric(
+            "Session end (with window)",
+            metrics_info.get("session_end_with_grace"),
+            _format_timestamp,
+        )
+        _append_metric(
+            "Session duration (s)",
+            metrics_info.get("session_duration_seconds"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Active time with EPCs (s)",
+            metrics_info.get("session_active_seconds"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Average concurrent EPCs",
+            metrics_info.get("concurrency_average"),
+            lambda value: round(float(value), 2),
+        )
+        peak_concurrency = metrics_info.get("concurrency_peak")
+        if peak_concurrency is not None and not pd.isna(peak_concurrency):
+            peak_concurrency_time = metrics_info.get("concurrency_peak_time")
+            if peak_concurrency_time is not None:
+                value_repr = (
+                    f"{int(peak_concurrency)} at {_format_timestamp(peak_concurrency_time)}"
+                )
+            else:
+                value_repr = int(peak_concurrency)
+            metrics_rows.append(
+                {
+                    "Metric": "Peak concurrent EPCs",
+                    "Value": value_repr,
+                }
+            )
+        elif metrics_info:
+            metrics_rows.append(
+                {
+                    "Metric": "Peak concurrent EPCs",
+                    "Value": "N/A",
                 }
             )
 
@@ -410,6 +620,19 @@ def write_excel(
                     startrow=start_row,
                 )
                 start_row += len(per_minute_to_write) + 2
+            if concurrency_df is not None and not concurrency_df.empty:
+                concurrency_to_write = concurrency_df.copy()
+                if "timestamp" in concurrency_to_write.columns:
+                    concurrency_to_write["timestamp"] = concurrency_to_write["timestamp"].dt.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                concurrency_to_write.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name=sheet_name,
+                    startrow=start_row,
+                )
+                start_row += len(concurrency_to_write) + 2
             if timeline_df is not None:
                 timeline_to_write = timeline_df.copy()
                 timeline_to_write.to_excel(
