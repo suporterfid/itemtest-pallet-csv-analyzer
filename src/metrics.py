@@ -93,6 +93,114 @@ def summarize_by_antenna(df: pd.DataFrame) -> pd.DataFrame:
     return ant
 
 
+def _extract_rssi_series(raw_df: pd.DataFrame | None) -> pd.Series:
+    """Return a numeric RSSI series extracted from ``raw_df``."""
+
+    if raw_df is None or raw_df.empty or "RSSI" not in raw_df.columns:
+        return pd.Series(dtype=float)
+    series = pd.to_numeric(raw_df["RSSI"], errors="coerce").dropna()
+    return series if not series.empty else pd.Series(dtype=float)
+
+
+def calculate_global_rssi_average(raw_df: pd.DataFrame | None) -> float:
+    """Return the global RSSI average in dBm for ``raw_df``."""
+
+    series = _extract_rssi_series(raw_df)
+    if series.empty:
+        return float("nan")
+    return float(series.mean())
+
+
+def calculate_global_rssi_std(raw_df: pd.DataFrame | None) -> float:
+    """Return the global RSSI population standard deviation for ``raw_df``."""
+
+    series = _extract_rssi_series(raw_df)
+    if series.empty:
+        return float("nan")
+    return float(series.std(ddof=0))
+
+
+def compile_global_rssi_metrics(
+    raw_df: pd.DataFrame | None,
+    summary_df: pd.DataFrame | None = None,
+    *,
+    std_threshold: float = 4.0,
+    redundancy_threshold: float = 10.0,
+) -> dict[str, object]:
+    """Return aggregated RSSI statistics and a noise indicator.
+
+    Parameters
+    ----------
+    raw_df:
+        Raw ItemTest readings containing an ``RSSI`` column.
+    summary_df:
+        Optional per-EPC summary with ``total_reads`` to estimate read redundancy.
+    std_threshold:
+        Minimum population standard deviation (in dBm) that signals high variance.
+    redundancy_threshold:
+        Minimum average reads per EPC required to flag potential noise.
+    """
+
+    avg = calculate_global_rssi_average(raw_df)
+    std = calculate_global_rssi_std(raw_df)
+
+    total_reads: float | None = None
+    unique_epcs: float | None = None
+
+    if summary_df is not None and not summary_df.empty:
+        if "EPC" in summary_df.columns:
+            try:
+                unique_epcs = float(summary_df["EPC"].nunique())
+            except Exception:  # pragma: no cover - defensive fallback
+                unique_epcs = float(summary_df.shape[0])
+        else:
+            unique_epcs = float(summary_df.shape[0])
+        if "total_reads" in summary_df.columns:
+            total_reads = float(
+                pd.to_numeric(summary_df["total_reads"], errors="coerce").sum()
+            )
+        else:
+            total_reads = float(summary_df.shape[0])
+    elif raw_df is not None and not raw_df.empty:
+        if "EPC" in raw_df.columns:
+            try:
+                unique_epcs = float(raw_df["EPC"].nunique())
+            except Exception:  # pragma: no cover - defensive fallback
+                unique_epcs = None
+        total_reads = float(raw_df.shape[0])
+
+    reads_per_epc = float("nan")
+    if unique_epcs is not None and unique_epcs > 0 and total_reads is not None:
+        reads_per_epc = float(total_reads) / float(unique_epcs)
+
+    noise_flag: bool | None = None
+    indicator: str | None = None
+
+    if not np.isnan(std):
+        if not np.isnan(reads_per_epc):
+            noise_flag = bool(std >= std_threshold and reads_per_epc >= redundancy_threshold)
+            if noise_flag:
+                indicator = (
+                    f"Variação elevada sem ganho de EPCs (σ={std:.2f} dBm; "
+                    f"{reads_per_epc:.1f} leituras/EPC)"
+                )
+            else:
+                indicator = (
+                    f"Estabilidade de RSSI dentro do esperado (σ={std:.2f} dBm; "
+                    f"{reads_per_epc:.1f} leituras/EPC)"
+                )
+        else:
+            indicator = f"Variação de RSSI calculada (σ={std:.2f} dBm)"
+
+    return {
+        "global_rssi_avg": avg,
+        "global_rssi_std": std,
+        "rssi_noise_flag": noise_flag,
+        "rssi_noise_indicator": indicator,
+        "rssi_noise_reads_per_epc": reads_per_epc,
+    }
+
+
 def _normalise_expected_sets(
     expected_full: Collection[str] | None,
     expected_suffixes: Collection[str] | None,
@@ -517,6 +625,7 @@ def compile_structured_kpis(
     )
     balance = calculate_antenna_balance(ant_counts)
     rssi_stability = calculate_rssi_stability_index(raw_df)
+    global_rssi_metrics = compile_global_rssi_metrics(raw_df, summary_df)
 
     top_performer: dict[str, object] | None = None
     if ant_counts is not None and not ant_counts.empty:
@@ -560,7 +669,7 @@ def compile_structured_kpis(
             suffix = getattr(row, "Suffix", "?")
             missing_labels.append(f"{face} - Row {row_label} ({suffix})")
 
-    return {
+    result = {
         "coverage_rate": stats["coverage_rate"],
         "expected_total": stats["total_expected"],
         "expected_found": stats["found_expected"],
@@ -586,6 +695,8 @@ def compile_structured_kpis(
         "location_error_count": int(location_errors.shape[0]) if location_errors is not None else 0,
         "reads_by_face": face_distribution,
     }
+    result.update(global_rssi_metrics)
+    return result
 
 
 __all__ = [
@@ -597,6 +708,9 @@ __all__ = [
     "calculate_tag_read_redundancy",
     "calculate_antenna_balance",
     "calculate_rssi_stability_index",
+    "calculate_global_rssi_average",
+    "calculate_global_rssi_std",
+    "compile_global_rssi_metrics",
     "calculate_layout_face_coverage",
     "calculate_layout_row_coverage",
     "detect_read_hotspots",

@@ -106,6 +106,11 @@ class TestComposeSummaryText(unittest.TestCase):
             "expected_found": 4,
             "missing_expected_full": ["CCC"],
             "missing_expected_suffix": [],
+            "global_rssi_avg": -47.8,
+            "global_rssi_std": 4.6,
+            "rssi_noise_flag": True,
+            "rssi_noise_indicator": "Variação elevada sem ganho de EPCs (σ=4.60 dBm; 18.0 leituras/EPC)",
+            "rssi_noise_reads_per_epc": 18.0,
         }
 
         text = compose_summary_text(
@@ -121,6 +126,9 @@ class TestComposeSummaryText(unittest.TestCase):
         self.assertIn("Frequências utilizadas", text)
         self.assertIn("Erros de localização", text)
         self.assertIn("Face com maior leitura", text)
+        self.assertIn("RSSI médio global", text)
+        self.assertIn("Desvio padrão global de RSSI", text)
+        self.assertIn("Indicador de ruído RSSI", text)
 
     def test_summary_highlights_continuous_new_metrics(self) -> None:
         metadata: dict = {}
@@ -157,6 +165,9 @@ class TestComposeSummaryText(unittest.TestCase):
             "inactive_longest_seconds": 30.0,
             "global_rssi_avg": -50.5,
             "global_rssi_std": 1.8,
+            "rssi_noise_flag": False,
+            "rssi_noise_indicator": "Estabilidade de RSSI dentro do esperado (σ=1.80 dBm; 3.0 leituras/EPC)",
+            "rssi_noise_reads_per_epc": 3.0,
         }
 
         summary_text = compose_summary_text(
@@ -174,6 +185,7 @@ class TestComposeSummaryText(unittest.TestCase):
         self.assertIn("Índice de congestão", summary_text)
         self.assertIn("Períodos inativos (>5× janela)", summary_text)
         self.assertIn("RSSI médio global", summary_text)
+        self.assertIn("Indicador de ruído RSSI", summary_text)
 
 
 class TestCliSummaryFlag(unittest.TestCase):

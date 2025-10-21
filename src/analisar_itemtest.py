@@ -176,6 +176,22 @@ def compose_summary_text(
                 f"- RSSI stability index (σ): {float(rssi_stability):.2f} dBm"
             )
 
+        global_rssi_avg_structured = structured_info.get("global_rssi_avg")
+        if global_rssi_avg_structured is not None and not pd.isna(global_rssi_avg_structured):
+            structured_lines.append(
+                f"- RSSI médio global: {float(global_rssi_avg_structured):.2f} dBm"
+            )
+        global_rssi_std_structured = structured_info.get("global_rssi_std")
+        if global_rssi_std_structured is not None and not pd.isna(global_rssi_std_structured):
+            structured_lines.append(
+                f"- Desvio padrão global de RSSI: {float(global_rssi_std_structured):.2f} dBm"
+            )
+        noise_indicator_structured = structured_info.get("rssi_noise_indicator")
+        if noise_indicator_structured:
+            structured_lines.append(
+                f"- Indicador de ruído RSSI: {noise_indicator_structured}"
+            )
+
         top_performer = structured_info.get("top_performer_antenna") or {}
         performer_value = None
         if isinstance(top_performer, dict):
@@ -459,6 +475,11 @@ def compose_summary_text(
         if global_rssi_std is not None and not pd.isna(global_rssi_std):
             continuous_lines.append(
                 f"- Desvio padrão global de RSSI: {float(global_rssi_std):.2f} dBm"
+            )
+        noise_indicator_continuous = details.get("rssi_noise_indicator")
+        if noise_indicator_continuous:
+            continuous_lines.append(
+                f"- Indicador de ruído RSSI: {noise_indicator_continuous}"
             )
 
         alerts = details.get("alerts")

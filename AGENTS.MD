@@ -93,6 +93,7 @@ AI agents collaborating on this repository may:
   * **CoverageRate** = % of expected EPCs read
   * **AntennaBalance** = deviation between antennas
   * **RSSI Stability Index** (std deviation per antenna)
+  * **Global RSSI KPIs** (mean, std) + **RSSI Noise Indicator** shared with continuous mode
   * **TopPerformerAntenna** (most reads)
   * **TagReadRedundancy** (avg. repeated reads per EPC)
 * Generate `Posicoes_Pallet` sheet and visual heatmap of read density.

@@ -9,6 +9,8 @@ from typing import Any, Iterable
 
 import pandas as pd
 
+from .metrics import calculate_global_rssi_average, calculate_global_rssi_std
+
 LOGGER = logging.getLogger("itemtest.continuous")
 
 
@@ -208,13 +210,12 @@ def analyze_continuous_flow(
 
     total_reads = int(working.shape[0])
 
-    global_rssi_avg: float | None = None
-    global_rssi_std: float | None = None
-    if "RSSI" in working.columns:
-        rssi_series = pd.to_numeric(working["RSSI"], errors="coerce").dropna()
-        if not rssi_series.empty:
-            global_rssi_avg = float(rssi_series.mean())
-            global_rssi_std = float(rssi_series.std(ddof=0))
+    global_rssi_avg = calculate_global_rssi_average(working)
+    global_rssi_std = calculate_global_rssi_std(working)
+    if pd.isna(global_rssi_avg):
+        global_rssi_avg = None
+    if pd.isna(global_rssi_std):
+        global_rssi_std = None
 
     per_epc_records: list[dict[str, Any]] = []
     timeline_records: list[dict[str, Any]] = []

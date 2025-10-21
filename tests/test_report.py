@@ -190,6 +190,11 @@ class TestReportWorkbookStructure(unittest.TestCase):
             "tag_read_redundancy": 2.4,
             "antenna_balance": 3.2,
             "rssi_stability_index": 1.25,
+            "global_rssi_avg": -47.3,
+            "global_rssi_std": 3.2,
+            "rssi_noise_flag": False,
+            "rssi_noise_indicator": "Estabilidade de RSSI dentro do esperado (σ=3.20 dBm; 6.5 leituras/EPC)",
+            "rssi_noise_reads_per_epc": 6.5,
             "top_performer_antenna": {
                 "antenna": 3,
                 "participation_pct": 57.8,
@@ -279,6 +284,16 @@ class TestReportWorkbookStructure(unittest.TestCase):
         self.assertEqual(exec_values.get("Tag read redundancy"), "2.40×")
         self.assertEqual(exec_values.get("Antenna balance (σ)"), "3.20%")
         self.assertEqual(exec_values.get("RSSI stability index (σ)"), "1.25 dBm")
+        self.assertAlmostEqual(
+            float(exec_values.get("Global RSSI mean (dBm)")), -47.3, places=2
+        )
+        self.assertAlmostEqual(
+            float(exec_values.get("Global RSSI std (dBm)")), 3.2, places=2
+        )
+        self.assertEqual(
+            exec_values.get("RSSI noise indicator"),
+            "Estabilidade de RSSI dentro do esperado (σ=3.20 dBm; 6.5 leituras/EPC)",
+        )
         self.assertEqual(
             exec_values.get("Top performer antenna"),
             "3 (57.8% of reads), 120 reads",
@@ -289,6 +304,8 @@ class TestReportWorkbookStructure(unittest.TestCase):
         self.assertIn("Read hotspots", flattened)
         self.assertIn("Frequency (MHz)", flattened)
         self.assertIn("Expected EPC", flattened)
+        self.assertIn("RSSI noise indicator", flattened)
+        self.assertIn("Global RSSI mean (dBm)", flattened)
 
         positions_values = positions_sheet.astype(str).fillna("")
         self.assertIn("Participation (%)", positions_values.values)
@@ -323,6 +340,9 @@ class TestReportWorkbookStructure(unittest.TestCase):
             "congestion_index": 0.42,
             "global_rssi_avg": -49.8,
             "global_rssi_std": 1.25,
+            "rssi_noise_flag": True,
+            "rssi_noise_indicator": "Variação elevada sem ganho de EPCs (σ=1.25 dBm; 15.0 leituras/EPC)",
+            "rssi_noise_reads_per_epc": 15.0,
             "inactive_periods": pd.DataFrame(
                 [
                     {
@@ -380,6 +400,10 @@ class TestReportWorkbookStructure(unittest.TestCase):
             float(exec_values["Global RSSI std (dBm)"]), 1.25, places=2
         )
         self.assertEqual(
+            str(exec_values["RSSI noise indicator"]),
+            "Variação elevada sem ganho de EPCs (σ=1.25 dBm; 15.0 leituras/EPC)",
+        )
+        self.assertEqual(
             str(exec_values["Peak active EPCs/min"]), "60 at 2025-01-02 08:17:00"
         )
         self.assertEqual(
@@ -395,6 +419,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
         self.assertIn("Inactive periods (>5× window)", first_column)
         self.assertTrue(any("start_time" in str(value) for value in first_column))
         self.assertEqual(str(exec_values["Dominant antenna"]), "4")
+        self.assertIn("RSSI noise indicator", first_column)
 
 
 class TestReportMetadataSheet(unittest.TestCase):
