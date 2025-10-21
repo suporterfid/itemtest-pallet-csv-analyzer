@@ -19,6 +19,7 @@
 | 13 | Generate per-file textual summary | ✅ Done | AI Agent | Prints metadata, per-antenna stats, and layout coverage in the logs |
 | 14 | Garantir execução do CLI como módulo ou script | ✅ Done | Developer | Ajustado bootstrap em `analisar_itemtest.py` para configurar `sys.path` automaticamente |
 | 15 | Corrigir parser para CSV com `;` e decimal `,` | ✅ Done | AI Agent | Parser ajustado e teste de regressão cobrindo EPCs e métricas |
+| 16 | Garantir fallback de Hostname no parser | ✅ Done | AI Agent | Hostname passa a usar `ReaderName` ou dados da coluna para alimentar relatórios |
 
 ---
 
