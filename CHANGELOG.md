@@ -10,6 +10,7 @@
 
 ### 🐞 Fixes
 - Corrigido o bootstrap do CLI para aceitar tanto `python src/analisar_itemtest.py` quanto `python -m src.analisar_itemtest`, mantendo a compatibilidade com o `run.bat` no Windows.
+- Ajustado o parser de CSV para detectar automaticamente delimitadores (`;`) e decimais com vírgula, preservando EPCs e métricas numéricas ao importar testes do ItemTest.
 
 ## v0.1 — First AI-generated Release (2025-10-21)
 
