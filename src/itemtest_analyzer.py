@@ -608,10 +608,22 @@ def process_file(
             for face in FACE_COLUMNS:
                 face_label = face.replace("_", " ")
                 for token in row[face]:
-                    suffix = token[-3:].upper() if len(token) >= 3 else token.upper()
+                    token_value = str(token).strip()
+                    suffix = (
+                        token_value[-3:].upper()
+                        if len(token_value) >= 3
+                        else token_value.upper()
+                    )
                     total_reads_for_suffix = summary.loc[
                         summary["EPC_suffix3"] == suffix, "total_reads"
                     ].sum()
+                    expected_token = token_value.upper()
+                    expected_epc = (
+                        expected_token
+                        if expected_token and HEX_EPC_PATTERN.match(expected_token)
+                        else None
+                    )
+                    position_label = f"{face_label} - Row {row_label}"
                     coverage_records.append(
                         {
                             ROW_COLUMN: row_label,
@@ -619,6 +631,9 @@ def process_file(
                             "Suffix": suffix,
                             "Read": bool(total_reads_for_suffix),
                             "total_reads": int(total_reads_for_suffix),
+                            "PositionLabel": position_label,
+                            "ExpectedToken": expected_token,
+                            "ExpectedEPC": expected_epc,
                         }
                     )
         positions_df = pd.DataFrame(coverage_records)

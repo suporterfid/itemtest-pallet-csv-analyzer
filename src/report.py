@@ -393,6 +393,10 @@ def write_excel(
     face_coverage_df = None
     row_coverage_df = None
     missing_positions_df = None
+    hotspots_df: pd.DataFrame | None = None
+    frequency_usage_df: pd.DataFrame | None = None
+    location_errors_df: pd.DataFrame | None = None
+    reads_by_face_df: pd.DataFrame | None = None
     if structured_info:
         coverage = structured_info.get("coverage_rate")
         expected_total = structured_info.get("expected_total")
@@ -449,6 +453,35 @@ def write_excel(
                 }
             )
 
+        hotspot_count = structured_info.get("read_hotspots_count")
+        threshold_value = structured_info.get("read_hotspots_threshold")
+        if hotspot_count is not None and not pd.isna(hotspot_count):
+            if hotspot_count and threshold_value is not None and not pd.isna(threshold_value):
+                value = f"{int(hotspot_count)} (≥ {float(threshold_value):.2f} reads)"
+            elif hotspot_count:
+                value = str(int(hotspot_count))
+            else:
+                value = "0"
+            structured_rows.append({"Metric": "Read hotspots", "Value": value})
+
+        frequency_unique = structured_info.get("frequency_unique_count")
+        if frequency_unique is not None and not pd.isna(frequency_unique):
+            structured_rows.append(
+                {
+                    "Metric": "Frequencies used",
+                    "Value": int(frequency_unique),
+                }
+            )
+
+        location_error_count = structured_info.get("location_error_count")
+        if location_error_count is not None and not pd.isna(location_error_count):
+            structured_rows.append(
+                {
+                    "Metric": "Location errors",
+                    "Value": int(location_error_count),
+                }
+            )
+
         missing_full = structured_info.get("missing_expected_full") or []
         missing_suffix = structured_info.get("missing_expected_suffix") or []
         missing_expected_records = [
@@ -492,6 +525,40 @@ def write_excel(
         else:
             missing_positions_df = None
 
+        hotspots_df = structured_info.get("read_hotspots")
+        if isinstance(hotspots_df, pd.DataFrame) and not hotspots_df.empty:
+            hotspots_df = hotspots_df.copy()
+            if "z_score" in hotspots_df.columns:
+                hotspots_df["z_score"] = hotspots_df["z_score"].astype(float).round(3)
+        else:
+            hotspots_df = None
+
+        frequency_usage_df = structured_info.get("frequency_usage")
+        if isinstance(frequency_usage_df, pd.DataFrame) and not frequency_usage_df.empty:
+            frequency_usage_df = frequency_usage_df.copy()
+            if "participation_pct" in frequency_usage_df.columns:
+                frequency_usage_df["participation_pct"] = (
+                    frequency_usage_df["participation_pct"].astype(float).round(2)
+                )
+        else:
+            frequency_usage_df = None
+
+        location_errors_df = structured_info.get("location_errors")
+        if isinstance(location_errors_df, pd.DataFrame) and not location_errors_df.empty:
+            location_errors_df = location_errors_df.copy()
+        else:
+            location_errors_df = None
+
+        reads_by_face_df = structured_info.get("reads_by_face")
+        if isinstance(reads_by_face_df, pd.DataFrame) and not reads_by_face_df.empty:
+            reads_by_face_df = reads_by_face_df.copy()
+            if "participation_pct" in reads_by_face_df.columns:
+                reads_by_face_df["participation_pct"] = (
+                    reads_by_face_df["participation_pct"].astype(float).round(2)
+                )
+        else:
+            reads_by_face_df = None
+
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
         summary_epc.to_excel(writer, index=False, sheet_name=SHEET_RESUMO)
         unexpected_df = unexpected
@@ -500,7 +567,26 @@ def write_excel(
         unexpected_df.to_excel(writer, index=False, sheet_name=SHEET_UNEXPECTED)
         ant_counts.to_excel(writer, index=False, sheet_name=SHEET_ANTENNA)
         if positions_df is not None:
-            positions_df.to_excel(writer, index=False, sheet_name=SHEET_POSICOES)
+            sheet_posicoes = SHEET_POSICOES
+            positions_to_write = positions_df.copy()
+            positions_to_write.to_excel(writer, index=False, sheet_name=sheet_posicoes)
+            next_row = len(positions_to_write) + 2
+            if isinstance(reads_by_face_df, pd.DataFrame) and not reads_by_face_df.empty:
+                reads_face_to_write = reads_by_face_df.rename(
+                    columns={
+                        "total_positions": "Total positions",
+                        "positions_with_reads": "Positions with reads",
+                        "total_reads": "Total reads",
+                        "participation_pct": "Participation (%)",
+                    }
+                )
+                reads_face_to_write.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name=sheet_posicoes,
+                    startrow=next_row,
+                )
+                next_row += len(reads_face_to_write) + 2
         if metadata:
             md_df = pd.DataFrame(list(metadata.items()), columns=["Key", "Value"])
             md_df.to_excel(writer, index=False, sheet_name=SHEET_METADATA)
@@ -571,6 +657,71 @@ def write_excel(
                     startrow=structured_row,
                 )
                 structured_row += len(row_to_write) + 2
+            if isinstance(reads_by_face_df, pd.DataFrame) and not reads_by_face_df.empty:
+                reads_face_to_write = reads_by_face_df.rename(
+                    columns={
+                        "total_positions": "Total positions",
+                        "positions_with_reads": "Positions with reads",
+                        "total_reads": "Total reads",
+                        "participation_pct": "Participation (%)",
+                    }
+                )
+                reads_face_to_write.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name=sheet_structured,
+                    startrow=structured_row,
+                )
+                structured_row += len(reads_face_to_write) + 2
+            if isinstance(hotspots_df, pd.DataFrame) and not hotspots_df.empty:
+                hotspots_to_write = hotspots_df.rename(
+                    columns={
+                        "EPC_suffix3": "Suffix",
+                        "total_reads": "Total reads",
+                        "expected_epc": "Expected?",
+                        "pallet_position": "Pallet position",
+                        "z_score": "Z-score",
+                    }
+                )
+                hotspots_to_write.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name=sheet_structured,
+                    startrow=structured_row,
+                )
+                structured_row += len(hotspots_to_write) + 2
+            if isinstance(location_errors_df, pd.DataFrame) and not location_errors_df.empty:
+                location_to_write = location_errors_df.rename(
+                    columns={
+                        "EPC_suffix3": "Suffix",
+                        "total_reads": "Total reads",
+                        "ExpectedEPC": "Expected EPC",
+                        "ExpectedPosition": "Expected position",
+                        "ObservedPosition": "Observed position",
+                    }
+                )
+                location_to_write.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name=sheet_structured,
+                    startrow=structured_row,
+                )
+                structured_row += len(location_to_write) + 2
+            if isinstance(frequency_usage_df, pd.DataFrame) and not frequency_usage_df.empty:
+                frequency_to_write = frequency_usage_df.rename(
+                    columns={
+                        "frequency_mhz": "Frequency (MHz)",
+                        "read_count": "Read count",
+                        "participation_pct": "Participation (%)",
+                    }
+                )
+                frequency_to_write.to_excel(
+                    writer,
+                    index=False,
+                    sheet_name=sheet_structured,
+                    startrow=structured_row,
+                )
+                structured_row += len(frequency_to_write) + 2
             if isinstance(missing_positions_df, pd.DataFrame) and not missing_positions_df.empty:
                 missing_positions_df.to_excel(
                     writer,

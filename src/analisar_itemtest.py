@@ -205,6 +205,99 @@ def compose_summary_text(
         elif structured_lines:
             structured_lines.append("- Missing expected tags: none")
 
+        hotspot_count = structured_info.get("read_hotspots_count")
+        hotspots_df = structured_info.get("read_hotspots")
+        threshold_value = structured_info.get("read_hotspots_threshold")
+        if hotspot_count is not None and not pd.isna(hotspot_count):
+            if hotspot_count:
+                sample_values: list[str] = []
+                if isinstance(hotspots_df, pd.DataFrame) and not hotspots_df.empty:
+                    sample_values = [
+                        str(value)
+                        for value in hotspots_df.get("EPC", pd.Series(dtype=str)).head(3)
+                        if str(value)
+                    ]
+                sample = ", ".join(sample_values)
+                suffix = " ..." if hotspot_count > 3 and sample else ""
+                if sample:
+                    sample_text = f" ({sample}{suffix})"
+                else:
+                    sample_text = ""
+                if threshold_value is not None and not pd.isna(threshold_value):
+                    structured_lines.append(
+                        f"- Hotspots de leitura: {int(hotspot_count)} tags acima de {float(threshold_value):.2f} leituras{sample_text}"
+                    )
+                else:
+                    structured_lines.append(
+                        f"- Hotspots de leitura: {int(hotspot_count)} tags{sample_text}"
+                    )
+            else:
+                structured_lines.append("- Hotspots de leitura: nenhum detectado")
+
+        frequency_unique = structured_info.get("frequency_unique_count")
+        frequency_df = structured_info.get("frequency_usage")
+        if frequency_unique is not None and not pd.isna(frequency_unique):
+            if frequency_unique:
+                samples: list[str] = []
+                if isinstance(frequency_df, pd.DataFrame) and not frequency_df.empty:
+                    for value in frequency_df.get("frequency_mhz", pd.Series(dtype=float)).head(3):
+                        if pd.isna(value):
+                            continue
+                        samples.append(f"{float(value):.3f} MHz")
+                sample = ", ".join(samples)
+                suffix = " ..." if frequency_unique > 3 and sample else ""
+                if sample:
+                    structured_lines.append(
+                        f"- Frequências utilizadas: {int(frequency_unique)} ({sample}{suffix})"
+                    )
+                else:
+                    structured_lines.append(
+                        f"- Frequências utilizadas: {int(frequency_unique)} canais registrados"
+                    )
+            else:
+                structured_lines.append("- Frequências utilizadas: não registradas")
+
+        location_error_count = structured_info.get("location_error_count")
+        location_df = structured_info.get("location_errors")
+        if location_error_count is not None and not pd.isna(location_error_count):
+            if location_error_count:
+                error_samples: list[str] = []
+                if isinstance(location_df, pd.DataFrame) and not location_df.empty:
+                    error_samples = [
+                        str(value)
+                        for value in location_df.get("EPC", pd.Series(dtype=str)).head(3)
+                        if str(value)
+                    ]
+                sample = ", ".join(error_samples)
+                suffix = " ..." if location_error_count > 3 and sample else ""
+                if sample:
+                    structured_lines.append(
+                        f"- Erros de localização: {int(location_error_count)} ({sample}{suffix})"
+                    )
+                else:
+                    structured_lines.append(
+                        f"- Erros de localização: {int(location_error_count)} detectados"
+                    )
+            else:
+                structured_lines.append("- Erros de localização: nenhum detectado")
+
+        reads_by_face_df = structured_info.get("reads_by_face")
+        if isinstance(reads_by_face_df, pd.DataFrame) and not reads_by_face_df.empty:
+            face_sorted = reads_by_face_df.sort_values("total_reads", ascending=False)
+            top_entry = face_sorted.iloc[0]
+            face_name = top_entry.get("Face", "?")
+            total_reads_face = top_entry.get("total_reads")
+            participation = top_entry.get("participation_pct")
+            if total_reads_face is not None and not pd.isna(total_reads_face):
+                if participation is not None and not pd.isna(participation):
+                    structured_lines.append(
+                        f"- Face com maior leitura: {face_name} ({int(total_reads_face)} leituras, {float(participation):.1f}%)"
+                    )
+                else:
+                    structured_lines.append(
+                        f"- Face com maior leitura: {face_name} ({int(total_reads_face)} leituras)"
+                    )
+
     continuous_lines: list[str] = []
     if analysis_mode == "continuous":
         details = continuous_details or {}
