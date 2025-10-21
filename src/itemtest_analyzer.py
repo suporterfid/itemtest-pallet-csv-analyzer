@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import argparse
 import logging
 import sys
 from datetime import datetime
@@ -659,6 +658,54 @@ def process_continuous_file(
     LOGGER.info("Continuous Excel report saved to: %s", excel_out)
     return excel_out
 
+
+def orchestrate_processing(
+    csv_files: Iterable[Path],
+    *,
+    mode: str,
+    out_dir: Path,
+    layout_df: pd.DataFrame | None,
+    expected_registry: dict[str, set[str]] | None,
+    window_seconds: float,
+) -> list[Path]:
+    """Dispatch the CSV files to the appropriate processing pipeline."""
+
+    normalized_mode = mode.lower()
+    if normalized_mode not in {"structured", "continuous"}:
+        raise ValueError(f"Unsupported analysis mode: {mode}")
+
+    results: list[Path] = []
+    if normalized_mode == "continuous":
+        for csv_path in csv_files:
+            try:
+                result = process_continuous_file(
+                    csv_path,
+                    out_dir,
+                    window_seconds=window_seconds,
+                    expected_registry=expected_registry,
+                )
+            except Exception as exc:  # pragma: no cover - log then abort similarly to CLI flow
+                LOGGER.exception(
+                    "Failed to process %s in continuous mode: %s",
+                    csv_path.name,
+                    exc,
+                )
+                raise SystemExit(1) from exc
+            results.append(result)
+    else:
+        for csv_path in csv_files:
+            LOGGER.info("Processing %s ...", csv_path.name)
+            result = process_file(
+                csv_path,
+                out_dir,
+                layout_df,
+                expected_registry=expected_registry,
+            )
+            results.append(result)
+
+    return results
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Impinj ItemTest RFID Analyzer (with optional pallet reference)"
@@ -708,10 +755,13 @@ def main():
         )
 
     LOGGER.info(
-        "Layout: %s | Expected EPC list: %s | Continuous window: %.2f s",
-        layout_path if layout_path else "(not provided)",
-        args.expected if args.expected else "(not provided)",
+        "Parameters summary → input: %s | output: %s | mode: %s | window: %.2fs | layout: %s | expected list: %s",
+        str(in_dir),
+        str(out_dir),
+        effective_mode,
         window_seconds,
+        str(layout_path) if layout_path else "(not provided)",
+        args.expected if args.expected else "(not provided)",
     )
 
     layout_df = None
@@ -733,29 +783,14 @@ def main():
         LOGGER.error("No CSV files found in %s", in_dir)
         sys.exit(1)
 
-    results: list[Path] = []
-    if effective_mode == "continuous":
-        for f in csv_files:
-            try:
-                res = process_continuous_file(
-                    f,
-                    out_dir,
-                    window_seconds=window_seconds,
-                    expected_registry=expected_registry,
-                )
-            except Exception as exc:  # pragma: no cover - capture informative tracebacks
-                LOGGER.exception(
-                    "Failed to process %s in continuous mode: %s",
-                    f.name,
-                    exc,
-                )
-                sys.exit(1)
-            results.append(res)
-    else:
-        for f in csv_files:
-            LOGGER.info("Processing %s ...", f.name)
-            res = process_file(f, out_dir, layout_df, expected_registry=expected_registry)
-            results.append(res)
+    results = orchestrate_processing(
+        csv_files,
+        mode=effective_mode,
+        out_dir=out_dir,
+        layout_df=layout_df,
+        expected_registry=expected_registry,
+        window_seconds=window_seconds,
+    )
     LOGGER.info("Completed. Generated files:")
     for r in results:
         LOGGER.info(" - %s", r)
