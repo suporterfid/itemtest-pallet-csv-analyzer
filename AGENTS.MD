@@ -177,7 +177,8 @@ and automated summaries.
 * EPCs Active over Time (continuous mode)
 * Heatmap (antenna coverage or pallet layout)
 * Throughput Timeline (EPCs/min)
-* RSSI vs Frequency scatter plot (noise detection)
+* RSSI vs Frequency scatter plot (noise detection) — implemented via
+  `plot_rssi_vs_frequency`
 
 ### Text Summary Example
 

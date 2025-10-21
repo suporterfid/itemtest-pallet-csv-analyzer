@@ -53,13 +53,88 @@ def boxplot_rssi_by_antenna(
     if not any(len(values) > 0 for values in data):
         return
     plt.figure()
-    plt.boxplot(data, labels=labels)
+    plt.boxplot(data, tick_labels=labels)
     plt.title(title)
     plt.xlabel("Antenna")
     plt.ylabel("RSSI (dBm)")
     plt.tight_layout()
     plt.savefig(out / "rssi_by_antenna_boxplot.png")
     plt.close()
+
+
+def plot_rssi_vs_frequency(
+    df: pd.DataFrame,
+    outdir: str,
+    title: str = "RSSI vs Frequency",
+) -> None:
+    """Plot a scatter chart showing RSSI distribution across frequency channels.
+
+    Parameters
+    ----------
+    df:
+        Raw ItemTest reads including ``RSSI`` and ``Frequency`` columns.
+    outdir:
+        Destination directory where the ``rssi_vs_frequency.png`` artifact
+        should be written. The directory is created when it does not exist.
+    title:
+        Custom chart title displayed above the scatter plot.
+    """
+
+    if df is None or df.empty:
+        return
+    if "RSSI" not in df.columns or "Frequency" not in df.columns:
+        return
+
+    working = pd.DataFrame(
+        {
+            "frequency": pd.to_numeric(df["Frequency"], errors="coerce"),
+            "rssi": pd.to_numeric(df["RSSI"], errors="coerce"),
+        }
+    ).dropna()
+    working = working.loc[working["frequency"] > 0]
+    if working.empty:
+        return
+
+    freq_abs_max = float(working["frequency"].abs().max())
+    scale_factor = 1.0
+    if freq_abs_max >= 1_000_000:
+        scale_factor = 1_000_000.0
+    elif freq_abs_max >= 1_000:
+        scale_factor = 1_000.0
+    working["frequency_mhz"] = working["frequency"] / scale_factor
+
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(8, 5))
+    plt.scatter(
+        working["frequency_mhz"],
+        working["rssi"],
+        s=18,
+        alpha=0.6,
+        color="#1f77b4",
+    )
+    plt.title(title)
+    plt.xlabel("Frequency (MHz)")
+    plt.ylabel("RSSI (dBm)")
+    plt.grid(alpha=0.3, linestyle="--", linewidth=0.5)
+
+    x_min = float(working["frequency_mhz"].min())
+    x_max = float(working["frequency_mhz"].max())
+    if x_max > x_min:
+        margin = max((x_max - x_min) * 0.05, 0.1)
+        plt.xlim(x_min - margin, x_max + margin)
+
+    y_min = float(working["rssi"].min())
+    y_max = float(working["rssi"].max())
+    if y_max > y_min:
+        y_margin = max((y_max - y_min) * 0.05, 1.0)
+        plt.ylim(y_min - y_margin, y_max + y_margin)
+
+    plt.tight_layout()
+    plt.savefig(out / "rssi_vs_frequency.png", dpi=150)
+    plt.close()
+
 
 def plot_active_epcs_over_time(
     epcs_per_minute: pd.Series,

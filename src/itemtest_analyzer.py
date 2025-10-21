@@ -28,6 +28,7 @@ from .plots import (
     plot_reads_by_epc,
     plot_reads_by_antenna,
     boxplot_rssi_by_antenna,
+    plot_rssi_vs_frequency,
     plot_active_epcs_over_time,
     plot_antenna_heatmap,
 )
@@ -690,6 +691,11 @@ def process_file(
         str(figures_dir),
         title=f"RSSI by Antenna — {csv_path.name}",
     )
+    plot_rssi_vs_frequency(
+        df,
+        str(figures_dir),
+        title=f"RSSI vs Frequency — {csv_path.name}",
+    )
 
     LOGGER.info("Gráficos salvos em: %s", figures_dir)
 
@@ -923,6 +929,11 @@ def process_continuous_file(
         summary,
         str(fig_dir),
         title=f"Antenna heatmap — {csv_path.name}",
+    )
+    plot_rssi_vs_frequency(
+        df,
+        str(fig_dir),
+        title=f"RSSI vs Frequency — {csv_path.name} (continuous)",
     )
 
     LOGGER.info("Gráficos (modo contínuo) salvos em: %s", fig_dir)
