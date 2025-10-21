@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### ✨ Features
+- Added an RSSI vs Frequency scatter plot that is generated for structured and
+  continuous analyses, filtering invalid readings to highlight RF channel
+  anomalies alongside existing chart artifacts.
 - Introduced a `--summary` CLI flag that aggregates per-file KPIs into an
   `executive_summary.xlsx` workbook for quick executive reviews of batch
   processing runs.
