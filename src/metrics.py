@@ -38,8 +38,15 @@ def summarize_by_antenna(df: pd.DataFrame) -> pd.DataFrame:
     ant = (
         df.dropna(subset=["Antenna"])
           .groupby("Antenna")
-          .agg(total_reads=("EPC","count"), rssi_avg=("RSSI","mean"))
+          .agg(total_reads=("EPC", "count"), rssi_avg=("RSSI", "mean"))
           .reset_index()
           .sort_values("Antenna")
     )
+    total_reads = int(ant["total_reads"].sum()) if not ant.empty else 0
+    if total_reads > 0:
+        ant["participation_pct"] = (
+            ant["total_reads"].astype(float) / total_reads * 100
+        )
+    else:
+        ant["participation_pct"] = 0.0
     return ant

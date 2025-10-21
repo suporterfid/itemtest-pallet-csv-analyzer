@@ -14,6 +14,7 @@
 | 08 | Enhance CLI with `--merge` option | 🧩 Medium | Developer | Merge multiple test summaries into one Excel |
 | 09 | Improve metadata parsing robustness | ✅ Done | Developer | Completed: parser now normalizes composite header metadata fields |
 | 10 | Unit tests for all core modules | ⚙️ Low | Developer | Use pytest with sample data |
+| 11 | Add participation percentage per antenna | ✅ Done | AI Agent | `participation_pct` now available in antenna summary and Excel report |
 
 ---
 
