@@ -285,6 +285,219 @@ def calculate_layout_row_coverage(positions_df: pd.DataFrame) -> pd.DataFrame:
     return grouped.sort_values(["Row", "Face"]).reset_index(drop=True)
 
 
+def detect_read_hotspots(
+    summary_df: pd.DataFrame, *, std_multiplier: float = 2.0
+) -> tuple[pd.DataFrame, float]:
+    """Return EPCs whose read volume exceeds ``mean + std_multiplier × std``.
+
+    Parameters
+    ----------
+    summary_df:
+        Aggregated per-EPC summary produced by :func:`summarize_by_epc`.
+    std_multiplier:
+        Multiplier applied to the population standard deviation to compute the
+        hotspot threshold. Defaults to ``2.0`` (≈95% confidence interval).
+
+    Returns
+    -------
+    tuple[pd.DataFrame, float]
+        A tuple with the table of hotspots (sorted by ``total_reads`` in
+        descending order) and the numeric threshold used for detection. When no
+        hotspot is found the DataFrame is empty and the threshold is ``np.nan``.
+    """
+
+    base_columns = ["EPC", "EPC_suffix3", "total_reads", "expected_epc", "pallet_position"]
+    result_columns = [column for column in base_columns if column in (summary_df.columns if summary_df is not None else [])]
+    result_columns.append("z_score")
+
+    empty = pd.DataFrame(columns=result_columns)
+    if (
+        summary_df is None
+        or summary_df.empty
+        or "total_reads" not in summary_df.columns
+        or std_multiplier <= 0
+    ):
+        return empty, float("nan")
+
+    working = summary_df.copy()
+    working["total_reads"] = pd.to_numeric(working["total_reads"], errors="coerce")
+    working = working.dropna(subset=["total_reads"])
+    if working.empty:
+        return empty, float("nan")
+
+    mean_reads = float(working["total_reads"].mean())
+    std_reads = float(working["total_reads"].std(ddof=0))
+    if std_reads <= 0 or np.isnan(std_reads):
+        return empty, float("nan")
+
+    threshold = mean_reads + std_multiplier * std_reads
+    working["z_score"] = (working["total_reads"] - mean_reads) / std_reads
+    hotspots = working.loc[working["total_reads"] >= threshold].copy()
+    if hotspots.empty:
+        return empty, threshold
+
+    hotspots = hotspots.sort_values("total_reads", ascending=False)
+    hotspots = hotspots[result_columns]
+    return hotspots.reset_index(drop=True), float(threshold)
+
+
+def calculate_frequency_usage(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Return the unique frequency channels observed in ``raw_df``.
+
+    The resulting DataFrame exposes the ``frequency_mhz`` column alongside the
+    absolute ``read_count`` and the relative participation in percentage.
+    """
+
+    columns = ["frequency_mhz", "read_count", "participation_pct"]
+    if raw_df is None or raw_df.empty or "Frequency" not in raw_df.columns:
+        return pd.DataFrame(columns=columns)
+
+    freq_series = pd.to_numeric(raw_df["Frequency"], errors="coerce").dropna()
+    if freq_series.empty:
+        return pd.DataFrame(columns=columns)
+
+    counts = freq_series.round(3).value_counts()
+    total_reads = float(counts.sum())
+    usage_df = (
+        counts.rename_axis("frequency_mhz")
+        .reset_index(name="read_count")
+        .sort_values("frequency_mhz")
+        .reset_index(drop=True)
+    )
+    if total_reads > 0:
+        usage_df["participation_pct"] = usage_df["read_count"].astype(float) / total_reads * 100
+    else:
+        usage_df["participation_pct"] = 0.0
+    return usage_df
+
+
+def detect_location_errors(
+    summary_df: pd.DataFrame, positions_df: pd.DataFrame | None
+) -> pd.DataFrame:
+    """Return EPCs whose suffix matches a position with a different expected EPC."""
+
+    columns = [
+        "EPC",
+        "EPC_suffix3",
+        "total_reads",
+        "ExpectedEPC",
+        "ExpectedPosition",
+        "ObservedPosition",
+    ]
+    if (
+        summary_df is None
+        or summary_df.empty
+        or positions_df is None
+        or positions_df.empty
+        or "ExpectedEPC" not in positions_df.columns
+    ):
+        return pd.DataFrame(columns=columns)
+
+    expected_positions = positions_df.dropna(subset=["ExpectedEPC"]).copy()
+    expected_positions["ExpectedEPC"] = expected_positions["ExpectedEPC"].astype(str).str.upper()
+    expected_positions = expected_positions.loc[expected_positions["ExpectedEPC"].str.len() > 0]
+    if expected_positions.empty:
+        return pd.DataFrame(columns=columns)
+
+    expected_positions["Suffix"] = expected_positions["Suffix"].astype(str).str.upper()
+    if "PositionLabel" in expected_positions.columns:
+        expected_positions["PositionLabel"] = expected_positions["PositionLabel"].astype(str)
+    else:
+        expected_positions["PositionLabel"] = expected_positions.apply(
+            lambda row: f"{row.get('Face', 'Unknown')} - Row {row.get('Row', '?')}",
+            axis=1,
+        )
+
+    grouped = expected_positions.groupby("Suffix").agg(
+        expected_epcs=("ExpectedEPC", lambda values: sorted({str(v) for v in values if str(v).strip()})),
+        positions=(
+            "PositionLabel",
+            lambda values: sorted({str(v) for v in values if str(v).strip()}),
+        ),
+    )
+
+    if grouped.empty:
+        return pd.DataFrame(columns=columns)
+
+    observed = summary_df.copy()
+    observed["EPC"] = observed["EPC"].astype(str).str.upper()
+    observed["EPC_suffix3"] = observed["EPC_suffix3"].astype(str).str.upper()
+    observed["total_reads"] = pd.to_numeric(observed.get("total_reads"), errors="coerce")
+    if "pallet_position" in observed.columns:
+        observed_position_col = "pallet_position"
+    else:
+        observed_position_col = None
+
+    errors: list[dict[str, object]] = []
+    for row in observed.itertuples(index=False):
+        suffix = getattr(row, "EPC_suffix3", None)
+        if not suffix or suffix not in grouped.index:
+            continue
+        expected_epcs = grouped.loc[suffix, "expected_epcs"]
+        if not expected_epcs:
+            continue
+        epc_value = getattr(row, "EPC", "")
+        if epc_value in expected_epcs:
+            continue
+        position_list = grouped.loc[suffix, "positions"]
+        observed_position = getattr(row, observed_position_col) if observed_position_col else None
+        errors.append(
+            {
+                "EPC": epc_value,
+                "EPC_suffix3": suffix,
+                "total_reads": getattr(row, "total_reads", np.nan),
+                "ExpectedEPC": "; ".join(expected_epcs),
+                "ExpectedPosition": "; ".join(position_list),
+                "ObservedPosition": observed_position,
+            }
+        )
+
+    if not errors:
+        return pd.DataFrame(columns=columns)
+
+    errors_df = pd.DataFrame(errors)
+    if "total_reads" in errors_df.columns:
+        errors_df = errors_df.sort_values(
+            by=["total_reads", "EPC"], ascending=[False, True]
+        )
+    return errors_df.reset_index(drop=True)
+
+
+def calculate_read_distribution_by_face(positions_df: pd.DataFrame | None) -> pd.DataFrame:
+    """Return aggregated read counts per pallet face."""
+
+    columns = [
+        "Face",
+        "total_positions",
+        "positions_with_reads",
+        "total_reads",
+        "participation_pct",
+    ]
+    if positions_df is None or positions_df.empty:
+        return pd.DataFrame(columns=columns)
+
+    working = positions_df.copy()
+    working["Face"] = working["Face"].fillna("Unknown")
+    working["Read"] = working["Read"].astype(bool)
+
+    grouped = (
+        working.groupby("Face", dropna=False)
+        .agg(
+            total_positions=("Suffix", "count"),
+            positions_with_reads=("Read", "sum"),
+            total_reads=("total_reads", "sum"),
+        )
+        .reset_index()
+    )
+    grouped["positions_with_reads"] = grouped["positions_with_reads"].astype(int)
+    total_reads = grouped["total_reads"].astype(float).sum()
+    if total_reads > 0:
+        grouped["participation_pct"] = grouped["total_reads"].astype(float) / total_reads * 100
+    else:
+        grouped["participation_pct"] = 0.0
+    return grouped.sort_values("total_reads", ascending=False).reset_index(drop=True)
+
+
 def compile_structured_kpis(
     summary_df: pd.DataFrame,
     raw_df: pd.DataFrame,
@@ -320,6 +533,10 @@ def compile_structured_kpis(
 
     face_coverage = calculate_layout_face_coverage(positions_df) if positions_df is not None else pd.DataFrame()
     row_coverage = calculate_layout_row_coverage(positions_df) if positions_df is not None else pd.DataFrame()
+    hotspots_df, hotspots_threshold = detect_read_hotspots(summary_df)
+    frequency_usage = calculate_frequency_usage(raw_df)
+    location_errors = detect_location_errors(summary_df, positions_df)
+    face_distribution = calculate_read_distribution_by_face(positions_df)
     layout_total_positions = int(positions_df.shape[0]) if positions_df is not None else None
     layout_read_positions = (
         int(positions_df["Read"].sum()) if positions_df is not None and "Read" in positions_df.columns else None
@@ -360,6 +577,14 @@ def compile_structured_kpis(
         "layout_overall_coverage": layout_overall_coverage,
         "missing_position_labels": missing_labels,
         "missing_positions_table": missing_positions,
+        "read_hotspots": hotspots_df,
+        "read_hotspots_threshold": hotspots_threshold,
+        "read_hotspots_count": int(hotspots_df.shape[0]) if hotspots_df is not None else 0,
+        "frequency_usage": frequency_usage,
+        "frequency_unique_count": int(frequency_usage.shape[0]) if frequency_usage is not None else 0,
+        "location_errors": location_errors,
+        "location_error_count": int(location_errors.shape[0]) if location_errors is not None else 0,
+        "reads_by_face": face_distribution,
     }
 
 
@@ -374,5 +599,9 @@ __all__ = [
     "calculate_rssi_stability_index",
     "calculate_layout_face_coverage",
     "calculate_layout_row_coverage",
+    "detect_read_hotspots",
+    "calculate_frequency_usage",
+    "detect_location_errors",
+    "calculate_read_distribution_by_face",
     "compile_structured_kpis",
 ]

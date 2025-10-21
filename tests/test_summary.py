@@ -43,6 +43,85 @@ class TestComposeSummaryText(unittest.TestCase):
 
         self.assertIn("- Hostname: 192.168.68.100", summary_text)
 
+    def test_summary_mentions_structured_diagnostics(self) -> None:
+        metadata: dict = {}
+        summary = pd.DataFrame(
+            {
+                "EPC": ["AAA", "BBB"],
+                "total_reads": [10, 2],
+                "first_time": [pd.Timestamp("2025-01-01T10:00:00")]*2,
+                "last_time": [pd.Timestamp("2025-01-01T10:05:00")]*2,
+                "expected_epc": [True, False],
+                "EPC_suffix3": ["AAA", "BBB"],
+            }
+        )
+        structured_metrics = {
+            "read_hotspots_count": 1,
+            "read_hotspots_threshold": 8.5,
+            "read_hotspots": pd.DataFrame(
+                [
+                    {
+                        "EPC": "AAA",
+                        "EPC_suffix3": "AAA",
+                        "total_reads": 10,
+                        "expected_epc": True,
+                        "pallet_position": "Front - Row 1",
+                        "z_score": 2.1,
+                    }
+                ]
+            ),
+            "frequency_unique_count": 2,
+            "frequency_usage": pd.DataFrame(
+                [
+                    {"frequency_mhz": 915.25, "read_count": 5, "participation_pct": 50.0},
+                    {"frequency_mhz": 915.5, "read_count": 5, "participation_pct": 50.0},
+                ]
+            ),
+            "location_error_count": 1,
+            "location_errors": pd.DataFrame(
+                [
+                    {
+                        "EPC": "BBB",
+                        "EPC_suffix3": "BBB",
+                        "total_reads": 2,
+                        "ExpectedEPC": "CCC",
+                        "ExpectedPosition": "Left - Row 1",
+                        "ObservedPosition": "Front - Row 1",
+                    }
+                ]
+            ),
+            "reads_by_face": pd.DataFrame(
+                [
+                    {
+                        "Face": "Front",
+                        "total_positions": 5,
+                        "positions_with_reads": 4,
+                        "total_reads": 12,
+                        "participation_pct": 60.0,
+                    }
+                ]
+            ),
+            "coverage_rate": 80.0,
+            "expected_total": 5,
+            "expected_found": 4,
+            "missing_expected_full": ["CCC"],
+            "missing_expected_suffix": [],
+        }
+
+        text = compose_summary_text(
+            Path("structured.csv"),
+            metadata,
+            summary,
+            pd.DataFrame({"Antenna": [1], "total_reads": [12]}),
+            positions_df=None,
+            structured_metrics=structured_metrics,
+        )
+
+        self.assertIn("Hotspots de leitura", text)
+        self.assertIn("Frequências utilizadas", text)
+        self.assertIn("Erros de localização", text)
+        self.assertIn("Face com maior leitura", text)
+
     def test_summary_highlights_continuous_new_metrics(self) -> None:
         metadata: dict = {}
         summary = pd.DataFrame(

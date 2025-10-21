@@ -41,6 +41,54 @@ class TestReportWorkbookStructure(unittest.TestCase):
                 "Reads": [12],
             }
         )
+        hotspots_df = pd.DataFrame(
+            [
+                {
+                    "EPC": "WRONG555",
+                    "EPC_suffix3": "555",
+                    "total_reads": 20,
+                    "expected_epc": False,
+                    "pallet_position": "Left - Row 1",
+                    "z_score": 2.5,
+                }
+            ]
+        )
+        frequency_df = pd.DataFrame(
+            [
+                {"frequency_mhz": 915.25, "read_count": 10, "participation_pct": 50.0},
+                {"frequency_mhz": 915.75, "read_count": 10, "participation_pct": 50.0},
+            ]
+        )
+        location_df = pd.DataFrame(
+            [
+                {
+                    "EPC": "WRONG555",
+                    "EPC_suffix3": "555",
+                    "total_reads": 20,
+                    "ExpectedEPC": "FFF555",
+                    "ExpectedPosition": "Left - Row 1",
+                    "ObservedPosition": "Left - Row 1",
+                }
+            ]
+        )
+        reads_face_df = pd.DataFrame(
+            [
+                {
+                    "Face": "Left",
+                    "total_positions": 10,
+                    "positions_with_reads": 9,
+                    "total_reads": 100,
+                    "participation_pct": 60.0,
+                },
+                {
+                    "Face": "Front",
+                    "total_positions": 8,
+                    "positions_with_reads": 7,
+                    "total_reads": 40,
+                    "participation_pct": 24.0,
+                },
+            ]
+        )
         structured_metrics = {
             "coverage_rate": 96.0,
             "expected_total": 50,
@@ -53,6 +101,14 @@ class TestReportWorkbookStructure(unittest.TestCase):
                 "participation_pct": 52.2,
                 "total_reads": 12,
             },
+            "read_hotspots": hotspots_df,
+            "read_hotspots_count": 1,
+            "read_hotspots_threshold": 18.0,
+            "frequency_usage": frequency_df,
+            "frequency_unique_count": len(frequency_df),
+            "location_errors": location_df,
+            "location_error_count": len(location_df),
+            "reads_by_face": reads_face_df,
         }
         continuous_metrics = {
             "average_dwell_seconds": 1.8,
@@ -139,7 +195,67 @@ class TestReportWorkbookStructure(unittest.TestCase):
                 "participation_pct": 57.8,
                 "total_reads": 120,
             },
+            "read_hotspots": pd.DataFrame(
+                [
+                    {
+                        "EPC": "WRONG555",
+                        "EPC_suffix3": "555",
+                        "total_reads": 25,
+                        "expected_epc": False,
+                        "pallet_position": "Left - Row 1",
+                        "z_score": 2.3,
+                    }
+                ]
+            ),
+            "read_hotspots_count": 1,
+            "read_hotspots_threshold": 20.0,
+            "frequency_usage": pd.DataFrame(
+                [
+                    {"frequency_mhz": 915.25, "read_count": 8, "participation_pct": 40.0},
+                    {"frequency_mhz": 915.5, "read_count": 12, "participation_pct": 60.0},
+                ]
+            ),
+            "frequency_unique_count": 2,
+            "location_errors": pd.DataFrame(
+                [
+                    {
+                        "EPC": "WRONG555",
+                        "EPC_suffix3": "555",
+                        "total_reads": 25,
+                        "ExpectedEPC": "FFF555",
+                        "ExpectedPosition": "Left - Row 1",
+                        "ObservedPosition": "Left - Row 1",
+                    }
+                ]
+            ),
+            "location_error_count": 1,
+            "reads_by_face": pd.DataFrame(
+                [
+                    {
+                        "Face": "Left",
+                        "total_positions": 12,
+                        "positions_with_reads": 10,
+                        "total_reads": 140,
+                        "participation_pct": 70.0,
+                    }
+                ]
+            ),
         }
+
+        positions_df = pd.DataFrame(
+            [
+                {
+                    "Row": "1",
+                    "Face": "Front",
+                    "Suffix": "111",
+                    "Read": True,
+                    "total_reads": 10,
+                    "PositionLabel": "Front - Row 1",
+                    "ExpectedToken": "111",
+                    "ExpectedEPC": None,
+                }
+            ]
+        )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_path = Path(tmp_dir) / "report.xlsx"
@@ -149,10 +265,13 @@ class TestReportWorkbookStructure(unittest.TestCase):
                 summary.iloc[0:0].copy(),
                 ant_counts,
                 metadata,
+                positions_df=positions_df,
                 structured_metrics=structured_metrics,
             )
 
             exec_df = pd.read_excel(out_path, sheet_name="Indicadores_Executivos")
+            structured_sheet = pd.read_excel(out_path, sheet_name="Structured_KPIs", header=None)
+            positions_sheet = pd.read_excel(out_path, sheet_name="Posicoes_Pallet", header=None)
 
         exec_values = exec_df.set_index("Indicator")["Value"].to_dict()
 
@@ -164,6 +283,15 @@ class TestReportWorkbookStructure(unittest.TestCase):
             exec_values.get("Top performer antenna"),
             "3 (57.8% of reads), 120 reads",
         )
+
+        structured_values = structured_sheet.astype(str).fillna("")
+        flattened = structured_values.values.ravel().tolist()
+        self.assertIn("Read hotspots", flattened)
+        self.assertIn("Frequency (MHz)", flattened)
+        self.assertIn("Expected EPC", flattened)
+
+        positions_values = positions_sheet.astype(str).fillna("")
+        self.assertIn("Participation (%)", positions_values.values)
 
     def test_executive_sheet_includes_continuous_metrics(self) -> None:
         summary = pd.DataFrame(
