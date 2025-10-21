@@ -152,6 +152,11 @@ When `--mode continuous` or no layout is provided:
 | `Posicoes_Pallet`        | Physical coverage (structured mode only)        |
 | `Structured_KPIs`        | Coverage, redundancy, balance, and RSSI KPIs    |
 
+All Excel exports **must** keep these Portuguese sheet titles plus the
+`EPCs_inesperados` tab for unexpected tags. The `Indicadores_Executivos`
+worksheet must always be present, combining KPIs from structured and
+continuous pipelines when available.
+
 Structured-mode analytics should rely on the pure helper functions in
 `metrics.py` (e.g., `compile_structured_kpis`) so coverage percentages,
 antenna balance, and redundancy stay consistent across the CLI, reports,

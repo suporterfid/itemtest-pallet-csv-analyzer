@@ -21,6 +21,7 @@
 | 15 | Corrigir parser para CSV com `;` e decimal `,` | ✅ Done | AI Agent | Parser ajustado e teste de regressão cobrindo EPCs e métricas |
 | 16 | Garantir fallback de Hostname no parser | ✅ Done | AI Agent | Hostname passa a usar `ReaderName` ou dados da coluna para alimentar relatórios |
 | 17 | Expand structured-mode KPIs in metrics/report | ✅ Done | AI Agent | Coverage, redundancy, balance, and RSSI stability surfaced in summaries and new `Structured_KPIs` sheet |
+| 18 | Align Excel workbook sheet naming with executive KPIs | ✅ Done | AI Agent | Tabs renamed to mandated Portuguese titles and executive dashboard merges structured/continuous metrics |
 
 ---
 

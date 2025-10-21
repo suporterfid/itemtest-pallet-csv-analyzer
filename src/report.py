@@ -4,6 +4,16 @@ import pandas as pd
 from pathlib import Path
 from typing import Callable
 
+
+SHEET_RESUMO = "Resumo_por_EPC"
+SHEET_UNEXPECTED = "EPCs_inesperados"
+SHEET_ANTENNA = "Leituras_por_Antena"
+SHEET_FLUXO = "Fluxo_Contínuo"
+SHEET_EXECUTIVE = "Indicadores_Executivos"
+SHEET_METADATA = "Metadata"
+SHEET_POSICOES = "Posicoes_Pallet"
+SHEET_STRUCTURED = "Structured_KPIs"
+
 def write_excel(
     out_path: str,
     summary_epc: pd.DataFrame,
@@ -157,6 +167,39 @@ def write_excel(
         formatted = formatter(value) if formatter else value
         executive_rows.append({"Indicator": label, "Value": formatted})
 
+    def _format_peak_with_timestamp(
+        value: object, timestamp: object
+    ) -> str | int | None:
+        if value is None:
+            return None
+        if isinstance(value, float) and pd.isna(value):
+            return None
+        try:
+            numeric = int(value)
+        except (TypeError, ValueError):
+            return None
+        if timestamp is None:
+            return numeric
+        formatted_ts = _format_timestamp(timestamp)
+        if formatted_ts == "N/A":
+            return numeric
+        return f"{numeric} at {formatted_ts}"
+
+    def _format_top_performer(info: object) -> str | None:
+        if not isinstance(info, dict):
+            return None
+        antenna = info.get("antenna")
+        if antenna is None:
+            return None
+        performer_label = str(antenna)
+        participation = info.get("participation_pct")
+        if participation is not None and not pd.isna(participation):
+            performer_label += f" ({float(participation):.1f}% of reads)"
+        reads_value = info.get("total_reads")
+        if reads_value is not None and not pd.isna(reads_value):
+            performer_label += f", {int(reads_value)} reads"
+        return performer_label
+
     total_epcs: int | None = None
     if "EPC" in summary_epc.columns:
         try:
@@ -206,13 +249,13 @@ def write_excel(
         lambda value: round(float(value), 2),
     )
     peak_concurrency_exec = metrics_info.get("concurrency_peak")
-    if peak_concurrency_exec is not None and not pd.isna(peak_concurrency_exec):
-        peak_concurrency_time = metrics_info.get("concurrency_peak_time")
-        if peak_concurrency_time is not None:
-            peak_repr = f"{int(peak_concurrency_exec)} at {_format_timestamp(peak_concurrency_time)}"
-        else:
-            peak_repr = int(peak_concurrency_exec)
-        executive_rows.append({"Indicator": "Peak concurrent EPCs", "Value": peak_repr})
+    peak_concurrency_repr = _format_peak_with_timestamp(
+        peak_concurrency_exec, metrics_info.get("concurrency_peak_time")
+    )
+    if peak_concurrency_repr is not None:
+        executive_rows.append(
+            {"Indicator": "Peak concurrent EPCs", "Value": peak_concurrency_repr}
+        )
 
     throughput_mean = metrics_info.get("epcs_per_minute_mean")
     _append_executive(
@@ -220,6 +263,15 @@ def write_excel(
         throughput_mean,
         lambda value: round(float(value), 2),
     )
+
+    peak_epm_repr = _format_peak_with_timestamp(
+        metrics_info.get("epcs_per_minute_peak"),
+        metrics_info.get("epcs_per_minute_peak_time"),
+    )
+    if peak_epm_repr is not None:
+        executive_rows.append(
+            {"Indicator": "Peak active EPCs/min", "Value": peak_epm_repr}
+        )
 
     dominant_exec = metrics_info.get("dominant_antenna")
     if dominant_exec is not None and str(dominant_exec) != "" and not (
@@ -256,6 +308,23 @@ def write_excel(
                 "Indicator": "Antenna balance (σ)",
                 "Value": f"{float(balance_exec):.2f}%",
             }
+        )
+
+    rssi_stability_exec = structured_info.get("rssi_stability_index")
+    if rssi_stability_exec is not None and not pd.isna(rssi_stability_exec):
+        executive_rows.append(
+            {
+                "Indicator": "RSSI stability index (σ)",
+                "Value": f"{float(rssi_stability_exec):.2f} dBm",
+            }
+        )
+
+    top_performer_label = _format_top_performer(
+        structured_info.get("top_performer_antenna")
+    )
+    if top_performer_label:
+        executive_rows.append(
+            {"Indicator": "Top performer antenna", "Value": top_performer_label}
         )
 
     structured_rows: list[dict[str, object]] = []
@@ -310,14 +379,8 @@ def write_excel(
             )
 
         top_performer = structured_info.get("top_performer_antenna")
-        if isinstance(top_performer, dict) and top_performer.get("antenna") is not None:
-            performer_label = str(top_performer.get("antenna"))
-            participation = top_performer.get("participation_pct")
-            if participation is not None and not pd.isna(participation):
-                performer_label += f" ({float(participation):.1f}% of reads)"
-            reads_value = top_performer.get("total_reads")
-            if reads_value is not None and not pd.isna(reads_value):
-                performer_label += f", {int(reads_value)} reads"
+        performer_label = _format_top_performer(top_performer)
+        if performer_label:
             structured_rows.append(
                 {
                     "Metric": "Top performer antenna",
@@ -369,19 +432,19 @@ def write_excel(
             missing_positions_df = None
 
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
-        summary_epc.to_excel(writer, index=False, sheet_name="Summary_by_EPC")
+        summary_epc.to_excel(writer, index=False, sheet_name=SHEET_RESUMO)
         unexpected_df = unexpected
         if unexpected_df is None:
             unexpected_df = pd.DataFrame(columns=summary_epc.columns)
-        unexpected_df.to_excel(writer, index=False, sheet_name="Unexpected_EPCs")
-        ant_counts.to_excel(writer, index=False, sheet_name="Reads_by_Antenna")
+        unexpected_df.to_excel(writer, index=False, sheet_name=SHEET_UNEXPECTED)
+        ant_counts.to_excel(writer, index=False, sheet_name=SHEET_ANTENNA)
         if positions_df is not None:
-            positions_df.to_excel(writer, index=False, sheet_name="Pallet_Positions")
+            positions_df.to_excel(writer, index=False, sheet_name=SHEET_POSICOES)
         if metadata:
             md_df = pd.DataFrame(list(metadata.items()), columns=["Key", "Value"])
-            md_df.to_excel(writer, index=False, sheet_name="Metadata")
+            md_df.to_excel(writer, index=False, sheet_name=SHEET_METADATA)
 
-        exec_sheet = "Indicadores_Executivos"
+        exec_sheet = SHEET_EXECUTIVE
         if executive_rows:
             exec_df = pd.DataFrame(executive_rows)
         else:
@@ -396,7 +459,7 @@ def write_excel(
         exec_df.to_excel(writer, index=False, sheet_name=exec_sheet)
 
         if structured_info:
-            sheet_structured = "Structured_KPIs"
+            sheet_structured = SHEET_STRUCTURED
             structured_row = 0
             if structured_rows:
                 structured_df = pd.DataFrame(structured_rows)
@@ -499,17 +562,11 @@ def write_excel(
             metrics_info.get("epcs_per_minute_mean"),
             lambda value: round(float(value), 2),
         )
-        peak_value = metrics_info.get("epcs_per_minute_peak")
-        if peak_value is not None and not pd.isna(peak_value):
-            peak_time = metrics_info.get("epcs_per_minute_peak_time")
-            if peak_time is not None:
-                value_repr = f"{int(peak_value)} at {_format_timestamp(peak_time)}"
-            else:
-                value_repr = int(peak_value)
+        if peak_epm_repr is not None:
             metrics_rows.append(
                 {
                     "Metric": "Peak active EPCs/min",
-                    "Value": value_repr,
+                    "Value": peak_epm_repr,
                 }
             )
         elif metrics_info:
@@ -559,19 +616,15 @@ def write_excel(
             metrics_info.get("concurrency_average"),
             lambda value: round(float(value), 2),
         )
-        peak_concurrency = metrics_info.get("concurrency_peak")
-        if peak_concurrency is not None and not pd.isna(peak_concurrency):
-            peak_concurrency_time = metrics_info.get("concurrency_peak_time")
-            if peak_concurrency_time is not None:
-                value_repr = (
-                    f"{int(peak_concurrency)} at {_format_timestamp(peak_concurrency_time)}"
-                )
-            else:
-                value_repr = int(peak_concurrency)
+        peak_concurrency_repr = _format_peak_with_timestamp(
+            metrics_info.get("concurrency_peak"),
+            metrics_info.get("concurrency_peak_time"),
+        )
+        if peak_concurrency_repr is not None:
             metrics_rows.append(
                 {
                     "Metric": "Peak concurrent EPCs",
-                    "Value": value_repr,
+                    "Value": peak_concurrency_repr,
                 }
             )
         elif metrics_info:
@@ -585,7 +638,7 @@ def write_excel(
         alerts_lines = _build_alert_lines()
 
         if metrics_rows or alerts_lines or timeline_df is not None or per_minute_df is not None:
-            sheet_name = "Fluxo_Contínuo"
+            sheet_name = SHEET_FLUXO
             start_row = 0
             if metrics_rows:
                 metrics_df = pd.DataFrame(metrics_rows)
