@@ -7,7 +7,7 @@
 | 01 | Add Streamlit dashboard for local visualization | 🔥 High | AI Agent / Developer | Simple upload UI with EPC stats + coverage charts |
 | 02 | Implement pallet heatmap generator | 🔥 High | AI Agent | Use matplotlib/seaborn 2D grid with color by RSSI mean |
 | 03 | Validate layout file content consistency | ⚡ Medium | Developer | Warn if tags in layout are missing from CSVs |
-| 04 | Add RSSI standard deviation per EPC | ⚡ Medium | Developer | New column in `metrics.py` |
+| 04 | Add RSSI standard deviation per EPC | ✅ Done | Developer | Continuous-mode summary now includes `rssi_std` per EPC |
 | 05 | Export consolidated CSV for Power BI | ⚡ Medium | Developer | Combine summaries across all CSVs |
 | 06 | Implement summary PDF generation | 🧩 Medium | AI Agent | Use reportlab or matplotlib to create executive report |
 | 07 | Add logging with timestamps and error capture | ✅ Done | Developer | Logging centralizado grava INFO/ERROR em `output/logs/<data>_itemtest_analyzer.log` |

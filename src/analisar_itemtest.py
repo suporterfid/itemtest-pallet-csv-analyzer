@@ -216,6 +216,12 @@ def compose_summary_text(
         else:
             continuous_lines.append("- Tempo médio de permanência: não disponível")
 
+        read_continuity = details.get("read_continuity_rate")
+        if read_continuity is not None and not pd.isna(read_continuity):
+            continuous_lines.append(
+                f"- Taxa de continuidade de leitura: {float(read_continuity):.2f}%"
+            )
+
         total_events = details.get("total_events")
         if total_events is not None and not pd.isna(total_events):
             continuous_lines.append(
@@ -223,6 +229,35 @@ def compose_summary_text(
             )
         else:
             continuous_lines.append("- Eventos de entrada/saída detectados: não disponível")
+
+        session_start_detail = details.get("session_start")
+        session_end_grace = details.get("session_end_with_grace") or details.get("session_end")
+        start_label = _format_timestamp(session_start_detail)
+        end_label = _format_timestamp(session_end_grace)
+        if start_label and end_label:
+            continuous_lines.append(
+                f"- Janela monitorada (com tolerância): {start_label} → {end_label}"
+            )
+        elif start_label:
+            continuous_lines.append(
+                f"- Início monitorado (com tolerância): {start_label}"
+            )
+        elif end_label:
+            continuous_lines.append(
+                f"- Fim monitorado (com tolerância): {end_label}"
+            )
+
+        session_duration = details.get("session_duration_seconds")
+        if session_duration is not None and not pd.isna(session_duration):
+            continuous_lines.append(
+                f"- Duração monitorada (s): {float(session_duration):.1f}"
+            )
+
+        session_active = details.get("session_active_seconds")
+        if session_active is not None and not pd.isna(session_active):
+            continuous_lines.append(
+                f"- Tempo ativo com EPCs (s): {float(session_active):.1f}"
+            )
 
         dominant = details.get("dominant_antenna")
         if dominant is not None and not (
@@ -236,10 +271,22 @@ def compose_summary_text(
         else:
             continuous_lines.append("- Antena dominante: não identificada")
 
+        throughput = details.get("throughput_per_minute")
+        if throughput is not None and not pd.isna(throughput):
+            continuous_lines.append(
+                f"- Throughput (EPCs/min): {float(throughput):.2f}"
+            )
+
         mean_epcs = details.get("epcs_per_minute_mean")
         if mean_epcs is not None and not pd.isna(mean_epcs):
             continuous_lines.append(
                 f"- EPCs ativos (média por minuto): {float(mean_epcs):.2f}"
+            )
+
+        concurrency_avg = details.get("concurrency_average")
+        if concurrency_avg is not None and not pd.isna(concurrency_avg):
+            continuous_lines.append(
+                f"- EPCs simultâneos (média): {float(concurrency_avg):.2f}"
             )
 
         peak_value = details.get("epcs_per_minute_peak")
@@ -258,6 +305,22 @@ def compose_summary_text(
                 peak_repr = str(int(peak_value))
             continuous_lines.append(
                 f"- Pico de EPCs ativos por minuto: {peak_repr}"
+            )
+
+        peak_concurrency = details.get("concurrency_peak")
+        if peak_concurrency is not None and not pd.isna(peak_concurrency):
+            peak_concurrency_time = details.get("concurrency_peak_time")
+            if peak_concurrency_time is not None:
+                peak_concurrency_label = _format_timestamp(peak_concurrency_time)
+                peak_concurrency_repr = (
+                    f"{int(peak_concurrency)} @ {peak_concurrency_label}"
+                    if peak_concurrency_label
+                    else str(int(peak_concurrency))
+                )
+            else:
+                peak_concurrency_repr = str(int(peak_concurrency))
+            continuous_lines.append(
+                f"- Pico de EPCs simultâneos: {peak_concurrency_repr}"
             )
 
         alerts = details.get("alerts")

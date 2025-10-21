@@ -329,6 +329,17 @@ def process_continuous_file(
         "alerts": alerts,
         "anomalous_epcs": result.anomalous_epcs,
         "inconsistency_flags": result.inconsistency_flags,
+        "read_continuity_rate": result.read_continuity_rate,
+        "throughput_per_minute": result.throughput_per_minute,
+        "session_start": result.session_start,
+        "session_end": result.session_end,
+        "session_end_with_grace": result.session_end_with_grace,
+        "session_duration_seconds": result.session_duration_seconds,
+        "session_active_seconds": result.session_active_seconds,
+        "concurrency_peak": result.concurrency_peak,
+        "concurrency_peak_time": result.concurrency_peak_time,
+        "concurrency_average": result.concurrency_average,
+        "concurrency_timeline": result.concurrency_timeline,
     }
     if peak_value is not None:
         continuous_details["epcs_per_minute_peak"] = peak_value
@@ -394,6 +405,20 @@ def process_continuous_file(
                 ).dt.strftime("%Y-%m-%d %H:%M:%S")
     timeline_log.to_csv(timeline_log_path, index=False, encoding="utf-8")
     LOGGER.info("Fluxo contínuo exportado para: %s", timeline_log_path)
+
+    concurrency_log_path = log_dir / f"{csv_path.stem}_concurrency_timeline.csv"
+    concurrency_log = result.concurrency_timeline.copy()
+    if concurrency_log.empty:
+        concurrency_log = pd.DataFrame(
+            columns=["timestamp", "change", "active_epcs", "duration_seconds"]
+        )
+    else:
+        if "timestamp" in concurrency_log.columns:
+            concurrency_log["timestamp"] = pd.to_datetime(
+                concurrency_log["timestamp"], errors="coerce"
+            ).dt.strftime("%Y-%m-%d %H:%M:%S")
+    concurrency_log.to_csv(concurrency_log_path, index=False, encoding="utf-8")
+    LOGGER.info("Linha do tempo de simultaneidade exportada para: %s", concurrency_log_path)
 
     fig_dir = out_dir / "graficos" / f"{csv_path.stem}_continuous"
     plot_reads_by_epc(summary, str(fig_dir), title=f"Reads by EPC — {csv_path.name} (continuous)")

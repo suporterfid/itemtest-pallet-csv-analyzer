@@ -22,9 +22,31 @@ class ContinuousFlowResult:
     average_dwell_seconds: float | None
     anomalous_epcs: list[str]
     inconsistency_flags: dict[str, list[str]]
+    concurrency_timeline: pd.DataFrame
+    read_continuity_rate: float | None
+    throughput_per_minute: float | None
+    session_start: pd.Timestamp | None
+    session_end: pd.Timestamp | None
+    session_end_with_grace: pd.Timestamp | None
+    session_duration_seconds: float | None
+    session_active_seconds: float | None
+    concurrency_peak: int | None
+    concurrency_peak_time: pd.Timestamp | None
+    concurrency_average: float | None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable representation of the analysis result."""
+
+        def _convert_timestamp(value: Any) -> Any:
+            if value is None:
+                return None
+            try:
+                ts = pd.to_datetime(value)
+            except Exception:
+                return value
+            if pd.isna(ts):
+                return None
+            return ts.isoformat()
 
         return {
             "per_epc_summary": self.per_epc_summary.to_dict(orient="records"),
@@ -35,6 +57,17 @@ class ContinuousFlowResult:
             "inconsistency_flags": {
                 key: list(values) for key, values in self.inconsistency_flags.items()
             },
+            "concurrency_timeline": self.concurrency_timeline.to_dict(orient="records"),
+            "read_continuity_rate": self.read_continuity_rate,
+            "throughput_per_minute": self.throughput_per_minute,
+            "session_start": _convert_timestamp(self.session_start),
+            "session_end": _convert_timestamp(self.session_end),
+            "session_end_with_grace": _convert_timestamp(self.session_end_with_grace),
+            "session_duration_seconds": self.session_duration_seconds,
+            "session_active_seconds": self.session_active_seconds,
+            "concurrency_peak": self.concurrency_peak,
+            "concurrency_peak_time": _convert_timestamp(self.concurrency_peak_time),
+            "concurrency_average": self.concurrency_average,
         }
 
 
@@ -73,6 +106,17 @@ def analyze_continuous_flow(
             average_dwell_seconds=None,
             anomalous_epcs=[],
             inconsistency_flags={},
+            concurrency_timeline=empty_frame,
+            read_continuity_rate=None,
+            throughput_per_minute=None,
+            session_start=None,
+            session_end=None,
+            session_end_with_grace=None,
+            session_duration_seconds=None,
+            session_active_seconds=None,
+            concurrency_peak=None,
+            concurrency_peak_time=None,
+            concurrency_average=None,
         )
 
     required_columns = {"EPC", "Timestamp", "Antenna"}
@@ -105,6 +149,17 @@ def analyze_continuous_flow(
             average_dwell_seconds=None,
             anomalous_epcs=[],
             inconsistency_flags={"invalid_data": ["No valid timestamps"]},
+            concurrency_timeline=empty_frame,
+            read_continuity_rate=None,
+            throughput_per_minute=None,
+            session_start=None,
+            session_end=None,
+            session_end_with_grace=None,
+            session_duration_seconds=None,
+            session_active_seconds=None,
+            concurrency_peak=None,
+            concurrency_peak_time=None,
+            concurrency_average=None,
         )
 
     working = working.sort_values(["EPC", "Timestamp", "Antenna"]).reset_index(drop=True)
@@ -151,6 +206,13 @@ def analyze_continuous_flow(
         first_seen = intervals["entry"].iloc[0] if not intervals.empty else None
         last_seen = intervals["exit"].iloc[-1] - window_td if not intervals.empty else None
 
+        rssi_std = None
+        if "RSSI" in sorted_group.columns:
+            rssi_numeric = pd.to_numeric(sorted_group["RSSI"], errors="coerce")
+            rssi_numeric = rssi_numeric.dropna()
+            if not rssi_numeric.empty:
+                rssi_std = float(rssi_numeric.std(ddof=0))
+
         initial_antenna = _first_valid_antenna(sorted_group["Antenna"].tolist())
         final_antenna = _first_valid_antenna(reversed(sorted_group["Antenna"].tolist()))
         direction_estimate = _infer_direction(sorted_group["Antenna"].tolist())
@@ -188,6 +250,7 @@ def analyze_continuous_flow(
                 "initial_antenna": initial_antenna,
                 "final_antenna": final_antenna,
                 "direction_estimate": direction_estimate,
+                "rssi_std": rssi_std,
             }
         )
 
@@ -204,7 +267,7 @@ def analyze_continuous_flow(
         ).reset_index(drop=True)
 
     epcs_per_minute = (
-        working.assign(_minute=working["Timestamp"].dt.floor("T"))
+        working.assign(_minute=working["Timestamp"].dt.floor("min"))
         .groupby("_minute")["EPC"]
         .nunique()
     )
@@ -216,6 +279,127 @@ def analyze_continuous_flow(
         else None
     )
 
+    session_start = pd.to_datetime(working["Timestamp"].min())
+    if session_start is not None and pd.isna(session_start):
+        session_start = None
+    session_end = pd.to_datetime(working["Timestamp"].max())
+    if session_end is not None and pd.isna(session_end):
+        session_end = None
+
+    session_end_with_grace = (
+        pd.to_datetime(epc_timeline["exit_time"].max())
+        if not epc_timeline.empty
+        else session_end
+    )
+    if session_end_with_grace is not None and pd.isna(session_end_with_grace):
+        session_end_with_grace = session_end
+
+    session_duration_seconds: float | None = None
+    if session_start is not None and session_end_with_grace is not None:
+        session_duration_seconds = float(
+            max((session_end_with_grace - session_start).total_seconds(), 0.0)
+        )
+
+    concurrency_timeline = pd.DataFrame()
+    session_active_seconds: float | None = None
+    concurrency_peak: int | None = None
+    concurrency_peak_time: pd.Timestamp | None = None
+    concurrency_average: float | None = None
+
+    if not epc_timeline.empty:
+        events: list[tuple[pd.Timestamp, int]] = []
+        for row in epc_timeline.itertuples(index=False):
+            entry = getattr(row, "entry_time", None)
+            exit_ = getattr(row, "exit_time", None)
+            entry_ts = pd.to_datetime(entry, errors="coerce") if entry is not None else None
+            exit_ts = pd.to_datetime(exit_, errors="coerce") if exit_ is not None else None
+            if entry_ts is None or exit_ts is None:
+                continue
+            if pd.isna(entry_ts) or pd.isna(exit_ts):
+                continue
+            events.append((entry_ts, 1))
+            events.append((exit_ts, -1))
+
+        if events:
+            events_df = pd.DataFrame(events, columns=["timestamp", "change"])
+            events_df["timestamp"] = pd.to_datetime(events_df["timestamp"], errors="coerce")
+            events_df = events_df.dropna(subset=["timestamp"])
+            if not events_df.empty:
+                events_df = events_df.sort_values(
+                    ["timestamp", "change"], ascending=[True, True], kind="mergesort"
+                ).reset_index(drop=True)
+                aggregated = events_df.groupby("timestamp", sort=True)["change"].sum()
+                active_counts = aggregated.cumsum()
+                concurrency_timeline = pd.DataFrame(
+                    {
+                        "timestamp": aggregated.index,
+                        "change": aggregated.to_numpy(),
+                        "active_epcs": active_counts.to_numpy(),
+                    }
+                )
+
+                if session_end_with_grace is None and not aggregated.empty:
+                    session_end_with_grace = aggregated.index.max()
+
+                durations: list[float] = []
+                timestamps_list = list(concurrency_timeline["timestamp"])
+                for idx, current in enumerate(timestamps_list):
+                    if idx + 1 < len(timestamps_list):
+                        delta_seconds = (
+                            timestamps_list[idx + 1] - current
+                        ).total_seconds()
+                    elif session_end_with_grace is not None:
+                        delta_seconds = (
+                            session_end_with_grace - current
+                        ).total_seconds()
+                    else:
+                        delta_seconds = 0.0
+                    durations.append(float(max(delta_seconds, 0.0)))
+                concurrency_timeline["duration_seconds"] = durations
+
+                session_active_seconds = 0.0
+                weighted_sum = 0.0
+                for row in concurrency_timeline.itertuples(index=False):
+                    active_value = getattr(row, "active_epcs", 0)
+                    duration_value = float(getattr(row, "duration_seconds", 0.0) or 0.0)
+                    if active_value > 0 and duration_value > 0:
+                        session_active_seconds += duration_value
+                        weighted_sum += active_value * duration_value
+
+                if not active_counts.empty:
+                    concurrency_peak = int(active_counts.max())
+                    try:
+                        peak_time = active_counts.idxmax()
+                        concurrency_peak_time = (
+                            pd.to_datetime(peak_time)
+                            if peak_time is not None and not pd.isna(peak_time)
+                            else None
+                        )
+                    except (TypeError, ValueError):
+                        concurrency_peak_time = None
+
+                    if session_duration_seconds and session_duration_seconds > 0:
+                        concurrency_average = weighted_sum / session_duration_seconds
+
+    read_continuity_rate: float | None = None
+    if (
+        session_duration_seconds
+        and session_duration_seconds > 0
+        and session_active_seconds is not None
+    ):
+        read_continuity_rate = (session_active_seconds / session_duration_seconds) * 100.0
+
+    throughput_per_minute: float | None = None
+    if session_duration_seconds and session_duration_seconds > 0:
+        total_epcs = (
+            int(per_epc_summary.shape[0])
+            if not per_epc_summary.empty
+            else int(working["EPC"].nunique())
+        )
+        minutes = session_duration_seconds / 60.0
+        if minutes > 0:
+            throughput_per_minute = float(total_epcs / minutes)
+
     anomalous_epcs = _detect_anomalous_durations(per_epc_summary, window_seconds)
     inconsistency_flags = _detect_inconsistencies(per_epc_summary, per_epc_antennas)
 
@@ -226,6 +410,17 @@ def analyze_continuous_flow(
         average_dwell_seconds=average_dwell_seconds,
         anomalous_epcs=anomalous_epcs,
         inconsistency_flags=inconsistency_flags,
+        concurrency_timeline=concurrency_timeline,
+        read_continuity_rate=read_continuity_rate,
+        throughput_per_minute=throughput_per_minute,
+        session_start=session_start,
+        session_end=session_end,
+        session_end_with_grace=session_end_with_grace,
+        session_duration_seconds=session_duration_seconds,
+        session_active_seconds=session_active_seconds,
+        concurrency_peak=concurrency_peak,
+        concurrency_peak_time=concurrency_peak_time,
+        concurrency_average=concurrency_average,
     )
 
 
