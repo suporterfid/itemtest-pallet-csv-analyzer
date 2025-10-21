@@ -153,13 +153,13 @@ Abas:
 * **Execução CLI:**
 
   ```bash
-  python analisar_itemtest.py --input "C:\RFID\Tests\CSV" --output "C:\RFID\Resultados" --mode continuous
+  python itemtest_analyzer.py --input "C:\RFID\Tests\CSV" --output "C:\RFID\Resultados" --mode continuous
   ```
 
   ou
 
   ```bash
-  python analisar_itemtest.py --input "C:\RFID\Tests\CSV" --output "C:\RFID\Resultados" --layout "C:\RFID\Pallets\Layout01.xlsx" --mode structured
+  python itemtest_analyzer.py --input "C:\RFID\Tests\CSV" --output "C:\RFID\Resultados" --layout "C:\RFID\Pallets\Layout01.xlsx" --mode structured
   ```
 
 * **Extras:**
@@ -175,7 +175,7 @@ Abas:
 ```
 ItemTestAnalyzer/
 ├── src/
-│   ├── analisar_itemtest.py
+│   ├── itemtest_analyzer.py
 │   ├── parser.py
 │   ├── metrics.py
 │   ├── plots.py
@@ -183,12 +183,11 @@ ItemTestAnalyzer/
 │   ├── continuous_mode.py   ← novo módulo para fluxo contínuo
 │   └── report.py
 ├── output/
-│   ├── graficos/
+│   ├── figures/
 │   └── logs/
 ├── samples/
-│   ├── Teste_Estruturado.csv
-│   ├── Teste_Continuo.csv
-│   └── Layout_Exemplo.xlsx
+│   ├── Sample_ItemTest.csv
+│   └── Sample_Pallet_Layout.xlsx
 ├── requirements.txt
 └── run.bat
 ```

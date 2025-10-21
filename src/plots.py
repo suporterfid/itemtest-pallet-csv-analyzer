@@ -4,51 +4,67 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
 
-def plot_reads_by_epc(df_summary: pd.DataFrame, outdir: str, title: str = "Leituras por EPC"):
-    out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
-    d = df_summary.sort_values("total_reads", ascending=False)
+def plot_reads_by_epc(
+    df_summary: pd.DataFrame,
+    outdir: str,
+    title: str = "Reads by EPC",
+):
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+    ordered = df_summary.sort_values("total_reads", ascending=False)
     plt.figure()
-    plt.bar(d["EPC_suffix3"].astype(str), d["total_reads"].astype(int))
+    plt.bar(ordered["EPC_suffix3"].astype(str), ordered["total_reads"].astype(int))
     plt.title(title)
-    plt.xlabel("EPC (sufixo 3)")
-    plt.ylabel("Total de leituras")
+    plt.xlabel("EPC (suffix 3)")
+    plt.ylabel("Total reads")
     plt.xticks(rotation=90)
     plt.tight_layout()
-    plt.savefig(out/"leituras_por_epc.png")
+    plt.savefig(out / "reads_by_epc.png")
     plt.close()
 
-def plot_reads_by_antenna(df_ant: pd.DataFrame, outdir: str, title: str = "Leituras por Antena"):
-    out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
+def plot_reads_by_antenna(
+    df_ant: pd.DataFrame,
+    outdir: str,
+    title: str = "Reads by Antenna",
+):
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
     plt.figure()
     plt.bar(df_ant["Antenna"].astype(int).astype(str), df_ant["total_reads"].astype(int))
     plt.title(title)
-    plt.xlabel("Antena")
-    plt.ylabel("Total de leituras")
+    plt.xlabel("Antenna")
+    plt.ylabel("Total reads")
     plt.tight_layout()
-    plt.savefig(out/"leituras_por_antena.png")
+    plt.savefig(out / "reads_by_antenna.png")
     plt.close()
 
-def boxplot_rssi_by_antenna(df: pd.DataFrame, outdir: str, title: str = "Distribuição de RSSI por Antena"):
-    out = Path(outdir); out.mkdir(parents=True, exist_ok=True)
+def boxplot_rssi_by_antenna(
+    df: pd.DataFrame,
+    outdir: str,
+    title: str = "RSSI distribution by antenna",
+):
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
     if "RSSI" not in df.columns or df["RSSI"].dropna().empty:
         return
-    data = [df.loc[df["Antenna"]==a, "RSSI"].dropna() for a in sorted(df["Antenna"].dropna().unique())]
-    labels = [str(int(a)) for a in sorted(df["Antenna"].dropna().unique())]
-    if not any(len(x)>0 for x in data):
+    antennas = sorted(df["Antenna"].dropna().unique())
+    data = [df.loc[df["Antenna"] == a, "RSSI"].dropna() for a in antennas]
+    labels = [str(int(a)) for a in antennas]
+    if not any(len(values) > 0 for values in data):
         return
     plt.figure()
     plt.boxplot(data, labels=labels)
     plt.title(title)
-    plt.xlabel("Antena")
+    plt.xlabel("Antenna")
     plt.ylabel("RSSI (dBm)")
     plt.tight_layout()
-    plt.savefig(out/"rssi_por_antena_boxplot.png")
+    plt.savefig(out / "rssi_by_antenna_boxplot.png")
     plt.close()
 
 def plot_active_epcs_over_time(
     epcs_per_minute: pd.Series,
     outdir: str,
-    title: str = "EPCs ativos por minuto",
+    title: str = "Active EPCs per minute",
 ):
     """Plot the number of active EPCs over time for continuous mode analysis."""
 
@@ -66,20 +82,20 @@ def plot_active_epcs_over_time(
     plt.figure()
     plt.plot(times.to_pydatetime(), series.astype(float), marker="o")
     plt.title(title)
-    plt.xlabel("Horário (min)")
-    plt.ylabel("EPCs únicos ativos")
+    plt.xlabel("Time (min)")
+    plt.ylabel("Active unique EPCs")
     plt.grid(axis="y", alpha=0.3)
     plt.gcf().autofmt_xdate()
     plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     plt.tight_layout()
-    plt.savefig(out / "epcs_ativos_no_tempo.png")
+    plt.savefig(out / "active_epcs_over_time.png")
     plt.close()
 
 
 def plot_antenna_heatmap(
     per_epc_summary: pd.DataFrame,
     outdir: str,
-    title: str = "Mapa de calor de participação por antena",
+    title: str = "Antenna participation heatmap",
 ):
     """Plot a heatmap showing antenna participation per EPC for continuous mode."""
 
@@ -135,14 +151,14 @@ def plot_antenna_heatmap(
     plt.figure(figsize=(8, max(4, len(matrix) * 0.25)))
     data = matrix.to_numpy(dtype=float)
     im = plt.imshow(data, aspect="auto", cmap="viridis")
-    plt.colorbar(im, label="Participação (%)")
+    plt.colorbar(im, label="Participation (%)")
     x_labels = [str(col) for col in matrix.columns]
     suffix_labels = [label[-4:] if len(label) > 4 else label for label in matrix.index]
     plt.xticks(range(len(x_labels)), x_labels, rotation=45, ha="right")
     plt.yticks(range(len(suffix_labels)), suffix_labels)
-    plt.xlabel("Antena")
-    plt.ylabel("EPC (sufixo)")
+    plt.xlabel("Antenna")
+    plt.ylabel("EPC (suffix)")
     plt.title(title)
     plt.tight_layout()
-    plt.savefig(out / "mapa_calor_antenas.png")
+    plt.savefig(out / "antenna_heatmap.png")
     plt.close()

@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Testes para validar a geração do resumo textual."""
+"""Tests ensuring the textual summary is generated correctly."""
 
 from pathlib import Path
 import unittest
 
 import pandas as pd
 
-from src.analisar_itemtest import compose_summary_text
+from src.itemtest_analyzer import compose_summary_text
 
 
 class TestComposeSummaryText(unittest.TestCase):
-    """Garante que o resumo textual apresenta informações essenciais."""
+    """Ensure the textual summary highlights essential information."""
 
     def test_summary_includes_hostname_from_metadata(self) -> None:
         metadata = {"Hostname": "192.168.68.100"}
@@ -20,7 +20,7 @@ class TestComposeSummaryText(unittest.TestCase):
                 "total_reads": [12],
                 "first_time": [pd.Timestamp("2025-01-01T10:00:00Z")],
                 "last_time": [pd.Timestamp("2025-01-01T10:15:00Z")],
-                "EPC_esperado": [True],
+                "expected_epc": [True],
             }
         )
         ant_counts = pd.DataFrame(

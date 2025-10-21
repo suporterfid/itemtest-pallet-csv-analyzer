@@ -1,14 +1,20 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+
 from pathlib import Path
 import pandas as pd
 import re
 
+ROW_COLUMN = "Row"
+FACE_COLUMNS = ["Rear", "Left_Side", "Right_Side", "Front"]
+
+
 def read_layout(path: str) -> pd.DataFrame:
-    """
-    Lê um arquivo de referência de layout do pallet (CSV, XLSX ou Markdown .md)
-    e retorna um DataFrame com colunas: Linha, Traseira, Lateral_Esquerda, Lateral_Direita, Frente
-    Cada célula pode conter múltiplos itens separados por '/', ',' ou ';'.
+    """Read a pallet reference layout (CSV, XLSX or Markdown) into a DataFrame.
+
+    The returned DataFrame contains the columns ``Row`` plus the face columns defined
+    in :data:`FACE_COLUMNS`. Each cell may contain multiple EPC identifiers or
+    suffix tokens separated by ``/``, ``,`` or ``;``.
     """
     p = Path(path)
     suffix = p.suffix.lower()
@@ -37,68 +43,80 @@ def read_layout(path: str) -> pd.DataFrame:
             from io import StringIO
             df = pd.read_csv(StringIO(txt))
     else:
-        raise ValueError(f"Formato de layout não suportado: {suffix}")
+        raise ValueError(f"Unsupported layout format: {suffix}")
 
-    # padronizar nomes de colunas
+    # Normalise column names to English canonical values
     rename_map = {
-        "Linha":"Linha", "line":"Linha", "altura":"Linha",
-        "Traseira":"Traseira", "Fundo":"Traseira", "Back":"Traseira",
-        "Lateral_Esquerda":"Lateral_Esquerda", "Esquerda":"Lateral_Esquerda", "Left":"Lateral_Esquerda",
-        "Lateral_Direita":"Lateral_Direita", "Direita":"Lateral_Direita", "Right":"Lateral_Direita",
-        "Frente":"Frente", "Front":"Frente"
+        "Linha": ROW_COLUMN,
+        "line": ROW_COLUMN,
+        "linha": ROW_COLUMN,
+        "altura": ROW_COLUMN,
+        "Row": ROW_COLUMN,
+        "row": ROW_COLUMN,
+        "Traseira": "Rear",
+        "Fundo": "Rear",
+        "Back": "Rear",
+        "Rear": "Rear",
+        "Lateral_Esquerda": "Left_Side",
+        "Esquerda": "Left_Side",
+        "Left": "Left_Side",
+        "Left Side": "Left_Side",
+        "Lateral_Direita": "Right_Side",
+        "Direita": "Right_Side",
+        "Right": "Right_Side",
+        "Right Side": "Right_Side",
+        "Frente": "Front",
+        "Front": "Front",
     }
     df.columns = [rename_map.get(c.strip(), c.strip()) for c in df.columns]
-    needed = ["Linha","Traseira","Lateral_Esquerda","Lateral_Direita","Frente"]
-    missing = [c for c in needed if c not in df.columns]
+    required_columns = [ROW_COLUMN, *FACE_COLUMNS]
+    missing = [c for c in required_columns if c not in df.columns]
     if missing:
-        raise ValueError(f"Colunas ausentes no layout: {missing}. Presentes: {list(df.columns)}")
+        raise ValueError(
+            f"Layout file is missing required columns: {missing}. Present columns: {list(df.columns)}"
+        )
 
-    # normalizar células em listas de valores (sufixos ou EPCs completos)
+    # Normalise cell contents into token lists (suffixes or full EPCs)
     def split_vals(val):
         if pd.isna(val):
             return []
         s = str(val).strip()
-        # separadores comuns
         parts = re.split(r"[\/,;]\s*|\s+\+\s+", s)
-        # remover strings vazias
         parts = [p.strip() for p in parts if p.strip()]
         return parts
 
-    for col in ["Traseira","Lateral_Esquerda","Lateral_Direita","Frente"]:
+    for col in FACE_COLUMNS:
         df[col] = df[col].apply(split_vals)
 
-    # garantir ordenação da linha do topo para base? Mantemos conforme arquivo.
     return df
 
 def build_expected_sets(df_layout: pd.DataFrame) -> dict:
-    """
-    A partir do layout, retorna dois conjuntos:
-      - expected_suffixes: sufixos de 3 chars
-      - expected_full: EPCs completos (hex longos)
-    """
-    import re
-    suffixes=set(); full=set()
-    HEX_EPC_MIN24 = re.compile(r"^[0-9A-Fa-f]{24,}$")
-    for col in ["Traseira","Lateral_Esquerda","Lateral_Direita","Frente"]:
-        for arr in df_layout[col]:
-            for token in arr:
+    """Return expected EPC suffix and full-code sets derived from the layout."""
+
+    suffixes: set[str] = set()
+    full: set[str] = set()
+    hex_pattern = re.compile(r"^[0-9A-Fa-f]{24,}$")
+    for col in FACE_COLUMNS:
+        for values in df_layout[col]:
+            for token in values:
                 t = token.strip()
-                if HEX_EPC_MIN24.match(t):
+                if hex_pattern.match(t):
                     full.add(t.upper())
-                elif len(t)>=3:
+                elif len(t) >= 3:
                     suffixes.add(t[-3:].upper())
     return {"expected_suffixes": suffixes, "expected_full": full}
 
 def map_position_by_suffix(df_layout: pd.DataFrame) -> dict[str, str]:
-    """
-    Retorna um dicionário: sufixo(3) -> posição "Face - Linha X"
-    Se houver múltiplas entradas iguais, a última prevalece.
-    """
-    pos = {}
-    for _,row in df_layout.iterrows():
-        linha = str(row["Linha"]).strip()
-        for face in ["Traseira","Lateral_Esquerda","Lateral_Direita","Frente"]:
+    """Return a mapping from EPC suffix (3 chars) to layout position description."""
+
+    positions: dict[str, str] = {}
+    for _, row in df_layout.iterrows():
+        row_label = str(row[ROW_COLUMN]).strip()
+        for face in FACE_COLUMNS:
             for token in row[face]:
-                suf = token[-3:].upper() if len(token)>=3 else token.upper()
-                pos[suf] = f"{face} - Linha {linha}"
-    return pos
+                suffix = token[-3:].upper() if len(token) >= 3 else token.upper()
+                positions[suffix] = f"{face.replace('_', ' ')} - Row {row_label}"
+    return positions
+
+
+__all__ = ["ROW_COLUMN", "FACE_COLUMNS", "read_layout", "build_expected_sets", "map_position_by_suffix"]

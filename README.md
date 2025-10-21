@@ -1,26 +1,28 @@
 # ItemTestAnalyzer
 
-Automação de análises de CSVs do **Impinj ItemTest** com suporte a **layout opcional do pallet** (CSV/XLSX/Markdown).
+Automates the analysis of **Impinj ItemTest** CSV exports with optional **pallet layout**
+references (CSV/XLSX/Markdown).
 
-## Requisitos
+## Requirements
 - Python 3.11+
 - `pip install -r requirements.txt`
 
-## Uso (CLI)
+## CLI Usage
 ```
-python src/analisar_itemtest.py --input "C:\RFID\Tests\CSV" --output "C:\RFID\Resultados" --layout "C:\RFID\Pallets\Layout.xlsx"
+python src/itemtest_analyzer.py --input "C:\RFID\Tests\CSV" --output "C:\RFID\Results" --layout "C:\RFID\Pallets\Layout.xlsx"
 ```
-Sem layout:
+Without a layout reference:
 ```
-python src/analisar_itemtest.py --input "C:\RFID\Tests\CSV" --output "C:\RFID\Resultados"
+python src/itemtest_analyzer.py --input "C:\RFID\Tests\CSV" --output "C:\RFID\Results"
 ```
 
-## Saídas
-- Um `.xlsx` por CSV processado
-- Gráficos em `output/graficos/<nome-arquivo>/`
-- Logs simples em `output/logs/` (reservado para futura expansão)
+## Outputs
+- One `.xlsx` workbook per processed CSV file
+- Charts stored in `output/figures/<file-name>/`
+- Text summaries and logs under `output/logs/`
 
-## Notas
-- Linhas em que `EPC` é IP (ex.: `192.168.68.100`) são ignoradas.
-- EPCs inválidos (não hexadecimais/curtos) são removidos.
-- Com **layout** fornecido, é gerada uma aba `Posicoes_Pallet` e `expected_suffix`.
+## Notes
+- Rows where the `EPC` resembles an IP (e.g., `192.168.68.100`) are ignored.
+- Invalid EPCs (non-hex/short) are removed.
+- When a **layout** is provided, the report includes a `Pallet_Positions` worksheet and
+  highlights expected suffix matches.
