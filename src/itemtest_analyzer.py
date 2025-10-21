@@ -11,6 +11,10 @@ from typing import Iterable
 
 import pandas as pd
 
+SUMMARY_PER_FILE_SHEET = "Detalhes_Por_Arquivo"
+SUMMARY_OVERVIEW_SHEET = "Resumo_Geral"
+SUMMARY_FILE_NAME = "executive_summary.xlsx"
+
 if __package__ in (None, ""):
     package_path = Path(__file__).resolve().parent
     project_root = package_path.parent
@@ -133,11 +137,399 @@ def load_expected_tokens(source: str | None) -> dict[str, set[str]]:
     return _build_expected_sets(tokens)
 
 
+def _clean_float(value: object) -> float | None:
+    """Return ``value`` as ``float`` or ``None`` when it cannot be converted."""
+
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
+
+def _clean_int(value: object) -> int | None:
+    """Return ``value`` as ``int`` or ``None`` when conversion is not possible."""
+
+    if value is None:
+        return None
+    if isinstance(value, (int,)):
+        return int(value)
+    try:
+        if isinstance(value, float) and pd.isna(value):
+            return None
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_timestamp_str(value: object) -> str | None:
+    """Return a human-readable timestamp string or ``None`` when unavailable."""
+
+    if value is None:
+        return None
+    try:
+        ts = pd.to_datetime(value)
+    except Exception:
+        return str(value)
+    if pd.isna(ts):
+        return None
+    return ts.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_top_performer_label(info: object) -> str | None:
+    """Return a descriptive label for the structured-mode top performer."""
+
+    if not isinstance(info, dict):
+        return None
+    antenna = info.get("antenna")
+    if antenna is None:
+        return None
+    try:
+        antenna_label = str(int(antenna))
+    except (TypeError, ValueError):
+        antenna_label = str(antenna)
+    participation = info.get("participation_pct")
+    if participation is not None and not pd.isna(participation):
+        antenna_label += f" ({float(participation):.1f}% of reads)"
+    total_reads = info.get("total_reads")
+    if total_reads is not None and not pd.isna(total_reads):
+        try:
+            total_reads_int = int(total_reads)
+        except (TypeError, ValueError):
+            total_reads_int = None
+        if total_reads_int is not None:
+            antenna_label += f", {total_reads_int} reads"
+    return antenna_label
+
+
+SUMMARY_COLUMN_ORDER = [
+    "file",
+    "mode",
+    "hostname",
+    "layout_used",
+    "total_epcs",
+    "total_reads",
+    "expected_detected",
+    "unexpected_detected",
+    "coverage_rate",
+    "expected_total",
+    "expected_found",
+    "tag_read_redundancy",
+    "antenna_balance",
+    "rssi_stability_index",
+    "top_performer",
+    "average_dwell_seconds",
+    "throughput_per_minute",
+    "read_continuity_rate",
+    "session_duration_seconds",
+    "session_active_seconds",
+    "concurrency_peak",
+    "concurrency_average",
+    "concurrency_peak_time",
+    "dominant_antenna",
+    "alerts_count",
+    "analysis_window_seconds",
+    "layout_total_positions",
+    "layout_read_positions",
+    "layout_overall_coverage",
+    "epcs_per_minute_mean",
+    "epcs_per_minute_peak",
+    "epcs_per_minute_peak_time",
+    "first_read",
+    "last_read",
+    "excel_report",
+    "summary_log",
+]
+
+
+def _register_structured_summary(
+    summary_records: list[dict[str, object]] | None,
+    *,
+    csv_path: Path,
+    excel_out: Path,
+    summary_df: pd.DataFrame,
+    metadata: dict[str, object],
+    structured_metrics: dict[str, object] | None,
+    summary_log: Path,
+    layout_applied: bool,
+) -> None:
+    """Append structured-mode metrics to the consolidated summary registry."""
+
+    if summary_records is None:
+        return
+
+    record: dict[str, object] = {
+        "file": csv_path.name,
+        "mode": "structured",
+        "hostname": metadata.get("Hostname"),
+        "layout_used": bool(layout_applied),
+        "excel_report": str(excel_out),
+        "summary_log": str(summary_log),
+    }
+
+    if summary_df is None or summary_df.empty:
+        record.update(
+            {
+                "total_epcs": 0,
+                "total_reads": 0,
+                "expected_detected": 0,
+                "unexpected_detected": 0,
+                "first_read": None,
+                "last_read": None,
+            }
+        )
+    else:
+        total_epcs = None
+        if "EPC" in summary_df.columns:
+            try:
+                total_epcs = int(summary_df["EPC"].nunique())
+            except Exception:
+                total_epcs = None
+        if total_epcs is None:
+            total_epcs = int(summary_df.shape[0])
+        record["total_epcs"] = total_epcs
+        if "total_reads" in summary_df.columns:
+            try:
+                record["total_reads"] = int(summary_df["total_reads"].sum())
+            except Exception:
+                record["total_reads"] = None
+        expected_series = summary_df.get("expected_epc")
+        if expected_series is not None:
+            expected_bool = expected_series.fillna(False).astype(bool)
+            record["expected_detected"] = int(expected_bool.sum())
+            record["unexpected_detected"] = int((~expected_bool).sum())
+        record["first_read"] = _format_timestamp_str(summary_df.get("first_time", pd.Series(dtype="datetime64[ns]")).min())
+        record["last_read"] = _format_timestamp_str(summary_df.get("last_time", pd.Series(dtype="datetime64[ns]")).max())
+
+    metrics = structured_metrics or {}
+    record["coverage_rate"] = _clean_float(metrics.get("coverage_rate"))
+    record["expected_total"] = _clean_int(metrics.get("expected_total"))
+    record["expected_found"] = _clean_int(metrics.get("expected_found"))
+    record["tag_read_redundancy"] = _clean_float(metrics.get("tag_read_redundancy"))
+    record["antenna_balance"] = _clean_float(metrics.get("antenna_balance"))
+    record["rssi_stability_index"] = _clean_float(metrics.get("rssi_stability_index"))
+    record["layout_total_positions"] = _clean_int(metrics.get("layout_total_positions"))
+    record["layout_read_positions"] = _clean_int(metrics.get("layout_read_positions"))
+    record["layout_overall_coverage"] = _clean_float(metrics.get("layout_overall_coverage"))
+    record["top_performer"] = _format_top_performer_label(metrics.get("top_performer_antenna"))
+
+    summary_records.append(record)
+
+
+def _register_continuous_summary(
+    summary_records: list[dict[str, object]] | None,
+    *,
+    csv_path: Path,
+    excel_out: Path,
+    summary_df: pd.DataFrame,
+    metadata: dict[str, object],
+    continuous_details: dict[str, object],
+    summary_log: Path,
+    alerts: list[str] | None,
+    window_seconds: float,
+) -> None:
+    """Append continuous-mode metrics to the consolidated summary registry."""
+
+    if summary_records is None:
+        return
+
+    record: dict[str, object] = {
+        "file": csv_path.name,
+        "mode": "continuous",
+        "hostname": metadata.get("Hostname"),
+        "layout_used": False,
+        "excel_report": str(excel_out),
+        "summary_log": str(summary_log),
+        "analysis_window_seconds": _clean_float(window_seconds),
+    }
+
+    if summary_df is None or summary_df.empty:
+        record["total_epcs"] = 0
+        record["total_reads"] = 0
+        record["expected_detected"] = 0
+        record["unexpected_detected"] = 0
+        record["first_read"] = _format_timestamp_str(continuous_details.get("session_start"))
+        record["last_read"] = _format_timestamp_str(continuous_details.get("session_end_with_grace") or continuous_details.get("session_end"))
+    else:
+        if "EPC" in summary_df.columns:
+            try:
+                record["total_epcs"] = int(summary_df["EPC"].nunique())
+            except Exception:
+                record["total_epcs"] = int(summary_df.shape[0])
+        else:
+            record["total_epcs"] = int(summary_df.shape[0])
+        if "total_reads" in summary_df.columns:
+            try:
+                record["total_reads"] = int(summary_df["total_reads"].sum())
+            except Exception:
+                record["total_reads"] = None
+        expected_series = summary_df.get("expected_epc")
+        if expected_series is not None:
+            expected_bool = expected_series.fillna(False).astype(bool)
+            record["expected_detected"] = int(expected_bool.sum())
+            record["unexpected_detected"] = int((~expected_bool).sum())
+        record["first_read"] = _format_timestamp_str(summary_df.get("first_time", pd.Series(dtype="datetime64[ns]")).min())
+        record["last_read"] = _format_timestamp_str(summary_df.get("last_time", pd.Series(dtype="datetime64[ns]")).max())
+
+    record["average_dwell_seconds"] = _clean_float(continuous_details.get("average_dwell_seconds"))
+    record["throughput_per_minute"] = _clean_float(continuous_details.get("throughput_per_minute"))
+    record["read_continuity_rate"] = _clean_float(continuous_details.get("read_continuity_rate"))
+    record["session_duration_seconds"] = _clean_float(continuous_details.get("session_duration_seconds"))
+    record["session_active_seconds"] = _clean_float(continuous_details.get("session_active_seconds"))
+    record["concurrency_peak"] = _clean_int(continuous_details.get("concurrency_peak"))
+    record["concurrency_average"] = _clean_float(continuous_details.get("concurrency_average"))
+    record["concurrency_peak_time"] = _format_timestamp_str(continuous_details.get("concurrency_peak_time"))
+    record["dominant_antenna"] = _clean_int(continuous_details.get("dominant_antenna"))
+    record["alerts_count"] = len(alerts or [])
+    record["epcs_per_minute_mean"] = _clean_float(continuous_details.get("epcs_per_minute_mean"))
+    record["epcs_per_minute_peak"] = _clean_int(continuous_details.get("epcs_per_minute_peak"))
+    record["epcs_per_minute_peak_time"] = _format_timestamp_str(
+        continuous_details.get("epcs_per_minute_peak_time")
+    )
+
+    summary_records.append(record)
+
+
+def _build_overview_table(per_file_df: pd.DataFrame) -> pd.DataFrame:
+    """Return aggregated overview metrics grouped by analysis mode."""
+
+    if per_file_df.empty:
+        return pd.DataFrame(columns=["mode", "files"])
+
+    agg_spec: dict[str, tuple[str, str]] = {"files": ("file", "count")}
+    if "total_epcs" in per_file_df.columns:
+        agg_spec["total_epcs"] = ("total_epcs", "sum")
+    if "total_reads" in per_file_df.columns:
+        agg_spec["total_reads"] = ("total_reads", "sum")
+    if "expected_detected" in per_file_df.columns:
+        agg_spec["expected_detected"] = ("expected_detected", "sum")
+    if "unexpected_detected" in per_file_df.columns:
+        agg_spec["unexpected_detected"] = ("unexpected_detected", "sum")
+    if "coverage_rate" in per_file_df.columns:
+        agg_spec["avg_coverage_rate"] = ("coverage_rate", "mean")
+    if "tag_read_redundancy" in per_file_df.columns:
+        agg_spec["avg_tag_redundancy"] = ("tag_read_redundancy", "mean")
+    if "antenna_balance" in per_file_df.columns:
+        agg_spec["avg_antenna_balance"] = ("antenna_balance", "mean")
+    if "average_dwell_seconds" in per_file_df.columns:
+        agg_spec["avg_dwell_seconds"] = ("average_dwell_seconds", "mean")
+    if "throughput_per_minute" in per_file_df.columns:
+        agg_spec["avg_throughput_per_minute"] = ("throughput_per_minute", "mean")
+    if "read_continuity_rate" in per_file_df.columns:
+        agg_spec["avg_read_continuity"] = ("read_continuity_rate", "mean")
+    if "session_duration_seconds" in per_file_df.columns:
+        agg_spec["avg_session_duration"] = ("session_duration_seconds", "mean")
+    if "layout_overall_coverage" in per_file_df.columns:
+        agg_spec["avg_layout_coverage"] = ("layout_overall_coverage", "mean")
+    if "concurrency_peak" in per_file_df.columns:
+        agg_spec["max_concurrency_peak"] = ("concurrency_peak", "max")
+    if "concurrency_average" in per_file_df.columns:
+        agg_spec["avg_concurrency"] = ("concurrency_average", "mean")
+
+    overview = (
+        per_file_df.groupby("mode", dropna=False).agg(**agg_spec).reset_index()
+    )
+
+    float_cols = overview.select_dtypes(include=["float", "float64", "float32"]).columns
+    if len(float_cols):
+        overview[float_cols] = overview[float_cols].round(2)
+
+    overall_row: dict[str, object] = {"mode": "overall", "files": int(per_file_df["file"].count())}
+    if "total_epcs" in per_file_df.columns:
+        overall_row["total_epcs"] = float(per_file_df["total_epcs"].sum())
+    if "total_reads" in per_file_df.columns:
+        overall_row["total_reads"] = float(per_file_df["total_reads"].sum())
+    if "expected_detected" in per_file_df.columns:
+        overall_row["expected_detected"] = float(per_file_df["expected_detected"].sum())
+    if "unexpected_detected" in per_file_df.columns:
+        overall_row["unexpected_detected"] = float(per_file_df["unexpected_detected"].sum())
+    if "coverage_rate" in per_file_df.columns:
+        overall_row["avg_coverage_rate"] = _clean_float(per_file_df["coverage_rate"].mean())
+    if "tag_read_redundancy" in per_file_df.columns:
+        overall_row["avg_tag_redundancy"] = _clean_float(per_file_df["tag_read_redundancy"].mean())
+    if "antenna_balance" in per_file_df.columns:
+        overall_row["avg_antenna_balance"] = _clean_float(per_file_df["antenna_balance"].mean())
+    if "average_dwell_seconds" in per_file_df.columns:
+        overall_row["avg_dwell_seconds"] = _clean_float(per_file_df["average_dwell_seconds"].mean())
+    if "throughput_per_minute" in per_file_df.columns:
+        overall_row["avg_throughput_per_minute"] = _clean_float(per_file_df["throughput_per_minute"].mean())
+    if "read_continuity_rate" in per_file_df.columns:
+        overall_row["avg_read_continuity"] = _clean_float(per_file_df["read_continuity_rate"].mean())
+    if "session_duration_seconds" in per_file_df.columns:
+        overall_row["avg_session_duration"] = _clean_float(per_file_df["session_duration_seconds"].mean())
+    if "layout_overall_coverage" in per_file_df.columns:
+        overall_row["avg_layout_coverage"] = _clean_float(per_file_df["layout_overall_coverage"].mean())
+    if "concurrency_peak" in per_file_df.columns:
+        overall_row["max_concurrency_peak"] = _clean_int(per_file_df["concurrency_peak"].max())
+    if "concurrency_average" in per_file_df.columns:
+        overall_row["avg_concurrency"] = _clean_float(per_file_df["concurrency_average"].mean())
+
+    overview = pd.concat([overview, pd.DataFrame([overall_row])], ignore_index=True)
+
+    return overview
+
+
+def generate_consolidated_summary(
+    summary_records: list[dict[str, object]] | None, out_dir: Path
+) -> Path | None:
+    """Persist consolidated executive metrics to an Excel workbook."""
+
+    if not summary_records:
+        LOGGER.info("No per-file metrics captured; skipping consolidated summary generation.")
+        return None
+
+    per_file_df = pd.DataFrame(summary_records)
+    if per_file_df.empty:
+        LOGGER.info("Per-file registry is empty; skipping consolidated summary generation.")
+        return None
+
+    column_order = [col for col in SUMMARY_COLUMN_ORDER if col in per_file_df.columns]
+    column_order.extend([col for col in per_file_df.columns if col not in column_order])
+    per_file_df = per_file_df[column_order]
+
+    if "layout_used" in per_file_df.columns:
+        per_file_df["layout_used"] = per_file_df["layout_used"].fillna(False).astype(bool)
+
+    float_candidates = [
+        "coverage_rate",
+        "tag_read_redundancy",
+        "antenna_balance",
+        "rssi_stability_index",
+        "average_dwell_seconds",
+        "throughput_per_minute",
+        "read_continuity_rate",
+        "session_duration_seconds",
+        "session_active_seconds",
+        "concurrency_average",
+        "layout_overall_coverage",
+        "epcs_per_minute_mean",
+        "analysis_window_seconds",
+    ]
+    for column in float_candidates:
+        if column in per_file_df.columns:
+            per_file_df[column] = pd.to_numeric(per_file_df[column], errors="coerce")
+
+    overview_df = _build_overview_table(per_file_df)
+
+    output_path = out_dir / SUMMARY_FILE_NAME
+    with pd.ExcelWriter(output_path, engine="xlsxwriter") as writer:
+        per_file_df.to_excel(writer, index=False, sheet_name=SUMMARY_PER_FILE_SHEET)
+        overview_df.to_excel(writer, index=False, sheet_name=SUMMARY_OVERVIEW_SHEET)
+
+    LOGGER.info("Executive summary workbook saved to: %s", output_path)
+    return output_path
+
+
 def process_file(
     csv_path: Path,
     out_dir: Path,
     layout_df: pd.DataFrame | None,
     expected_registry: dict[str, set[str]] | None = None,
+    summary_records: list[dict[str, object]] | None = None,
 ):
     df, metadata = read_itemtest_csv(str(csv_path))
 
@@ -241,6 +633,16 @@ def process_file(
         positions_df=positions_df,
         structured_metrics=structured_metrics,
     )
+    _register_structured_summary(
+        summary_records,
+        csv_path=csv_path,
+        excel_out=excel_out,
+        summary_df=summary,
+        metadata=metadata,
+        structured_metrics=structured_metrics,
+        summary_log=summary_log,
+        layout_applied=layout_df is not None,
+    )
     return excel_out
 
 
@@ -249,6 +651,7 @@ def process_continuous_file(
     out_dir: Path,
     window_seconds: float,
     expected_registry: dict[str, set[str]] | None = None,
+    summary_records: list[dict[str, object]] | None = None,
 ) -> Path:
     """Process a CSV file using the continuous flow analysis pipeline."""
 
@@ -459,6 +862,17 @@ def process_continuous_file(
         continuous_epcs_per_minute=result.epcs_per_minute,
     )
     LOGGER.info("Continuous Excel report saved to: %s", excel_out)
+    _register_continuous_summary(
+        summary_records,
+        csv_path=csv_path,
+        excel_out=excel_out,
+        summary_df=summary,
+        metadata=metadata,
+        continuous_details=continuous_details,
+        summary_log=summary_log,
+        alerts=alerts,
+        window_seconds=window_seconds,
+    )
     return excel_out
 
 
@@ -470,6 +884,7 @@ def orchestrate_processing(
     layout_df: pd.DataFrame | None,
     expected_registry: dict[str, set[str]] | None,
     window_seconds: float,
+    summary_records: list[dict[str, object]] | None = None,
 ) -> list[Path]:
     """Dispatch the CSV files to the appropriate processing pipeline."""
 
@@ -486,6 +901,7 @@ def orchestrate_processing(
                     out_dir,
                     window_seconds=window_seconds,
                     expected_registry=expected_registry,
+                    summary_records=summary_records,
                 )
             except Exception as exc:  # pragma: no cover - log then abort similarly to CLI flow
                 LOGGER.exception(
@@ -503,13 +919,16 @@ def orchestrate_processing(
                 out_dir,
                 layout_df,
                 expected_registry=expected_registry,
+                summary_records=summary_records,
             )
             results.append(result)
 
     return results
 
 
-def main():
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Return an argument parser configured with all CLI options."""
+
     ap = argparse.ArgumentParser(
         description="Impinj ItemTest RFID Analyzer (with optional pallet reference)"
     )
@@ -536,6 +955,19 @@ def main():
         default=2.0,
         help="Window size in seconds for continuous mode grouping (default: 2.0)",
     )
+    ap.add_argument(
+        "--summary",
+        action="store_true",
+        help=(
+            "Generate an executive summary workbook consolidating KPIs across all processed "
+            "CSV files in the selected mode."
+        ),
+    )
+    return ap
+
+
+def main():
+    ap = build_arg_parser()
     args = ap.parse_args()
 
     LOGGER.info("Log file configured at: %s", LOG_FILE_PATH)
@@ -586,6 +1018,8 @@ def main():
         LOGGER.error("No CSV files found in %s", in_dir)
         sys.exit(1)
 
+    summary_records: list[dict[str, object]] | None = [] if args.summary else None
+
     results = orchestrate_processing(
         csv_files,
         mode=effective_mode,
@@ -593,10 +1027,16 @@ def main():
         layout_df=layout_df,
         expected_registry=expected_registry,
         window_seconds=window_seconds,
+        summary_records=summary_records,
     )
     LOGGER.info("Completed. Generated files:")
     for r in results:
         LOGGER.info(" - %s", r)
+
+    if summary_records is not None:
+        summary_path = generate_consolidated_summary(summary_records, out_dir)
+        if summary_path is not None:
+            LOGGER.info("Consolidated executive summary available at: %s", summary_path)
 
 if __name__ == "__main__":
     main()

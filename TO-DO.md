@@ -8,7 +8,7 @@
 | 02 | Implement pallet heatmap generator | 🔥 High | AI Agent | Use matplotlib/seaborn 2D grid with color by RSSI mean |
 | 03 | Validate layout file content consistency | ⚡ Medium | Developer | Warn if tags in layout are missing from CSVs |
 | 04 | Add RSSI standard deviation per EPC | ✅ Done | Developer | Continuous-mode summary now includes `rssi_std` per EPC |
-| 05 | Export consolidated CSV for Power BI | ⚡ Medium | Developer | Combine summaries across all CSVs |
+| 05 | Export consolidated CSV for Power BI | ⚡ Medium | Developer | `--summary` workbook now consolidates KPIs; add CSV export for Power BI ingestion |
 | 06 | Implement summary PDF generation | 🧩 Medium | AI Agent | Use reportlab or matplotlib to create executive report |
 | 07 | Add logging with timestamps and error capture | ✅ Done | Developer | Logging centralizado grava INFO/ERROR em `output/logs/<data>_itemtest_analyzer.log` |
 | 08 | Enhance CLI with `--merge` option | 🧩 Medium | Developer | Merge multiple test summaries into one Excel |
@@ -41,7 +41,7 @@
 
 When working on this repository via AI automation:
 
-1. **Follow PEP8** and preserve existing CLI arguments (`--input`, `--output`, `--layout`).
+1. **Follow PEP8** and preserve existing CLI arguments (`--input`, `--output`, `--layout`, `--mode`, `--window`, `--expected`, `--summary`).
 2. **Keep all functional code inside `/src`** — no logic in root directory.
 3. **Document all functions** with concise docstrings.
 4. **Preserve UTF-8 encoding** and Windows path compatibility.
