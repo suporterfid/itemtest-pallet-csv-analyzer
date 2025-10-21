@@ -18,6 +18,7 @@
 | 12 | Allow expected EPC list without layout | ✅ Done | AI Agent | New `--expected` option loads EPC/suffix presets and flags unexpected tags |
 | 13 | Generate per-file textual summary | ✅ Done | AI Agent | Prints metadata, per-antenna stats, and layout coverage in the logs |
 | 14 | Garantir execução do CLI como módulo ou script | ✅ Done | Developer | Ajustado bootstrap em `analisar_itemtest.py` para configurar `sys.path` automaticamente |
+| 15 | Corrigir parser para CSV com `;` e decimal `,` | ✅ Done | AI Agent | Parser ajustado e teste de regressão cobrindo EPCs e métricas |
 
 ---
 

@@ -97,18 +97,45 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
             metadata["PowersInDbm"] = parsed_pairs["PowersInDbm"].strip()
 
     # build CSV string removing the '//' of header
-    csv_str = "\n".join(raw_lines[header_idx:])
-    if csv_str.startswith("//"):
-        csv_str = csv_str[2:].lstrip()
-    df = pd.read_csv(io.StringIO(csv_str))
+    csv_lines = raw_lines[header_idx:]
+    if not csv_lines:
+        raise RuntimeError("Arquivo CSV não possui linhas de dados após o cabeçalho.")
+
+    header_line = csv_lines[0]
+    if header_line.startswith("//"):
+        header_line = header_line[2:].lstrip()
+
+    # o arquivo de exemplo mistura cabeçalho com vírgulas e dados com ponto e vírgula;
+    # alinhe o cabeçalho ao delimitador detectado nas primeiras linhas de dados
+    data_line = next(
+        (line for line in csv_lines[1:] if line and not line.lstrip().startswith("//")),
+        "",
+    )
+    if ";" in data_line and ";" not in header_line:
+        normalized_header = header_line.replace(", ", ";").replace(",", ";")
+    else:
+        normalized_header = header_line
+
+    csv_str = "\n".join([normalized_header, *csv_lines[1:]])
+
+    # detect delimiter automatically while supporting decimal commas from ItemTest exports
+    read_buffer = io.StringIO(csv_str)
+    try:
+        df = pd.read_csv(read_buffer, sep=None, engine="python", decimal=",")
+    except (pd.errors.ParserError, ValueError):
+        # fall back to semicolon-separated parsing (common in PT-BR locale exports)
+        df = pd.read_csv(io.StringIO(csv_str), sep=";", engine="python", decimal=",")
 
     # normalize columns
     df.columns = [c.strip() for c in df.columns]
 
     # coerce numeric
-    for col in ["RSSI","Antenna","Frequency","PhaseAngle","DopplerFrequency","CRHandle"]:
+    for col in ["RSSI", "Antenna", "Frequency", "PhaseAngle", "DopplerFrequency", "CRHandle"]:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            series = df[col]
+            if series.dtype == object:
+                series = series.astype(str).str.replace(",", ".", regex=False)
+            df[col] = pd.to_numeric(series, errors="coerce")
     if "Timestamp" in df.columns:
         df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
 
