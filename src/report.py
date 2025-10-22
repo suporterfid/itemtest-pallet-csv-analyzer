@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import pandas as pd
+
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
+
+import pandas as pd
 
 
 SHEET_RESUMO = "Resumo_por_EPC"
@@ -13,6 +16,45 @@ SHEET_EXECUTIVE = "Indicadores_Executivos"
 SHEET_METADATA = "Metadata"
 SHEET_POSICOES = "Posicoes_Pallet"
 SHEET_STRUCTURED = "Structured_KPIs"
+
+
+def _sanitize_datetime_value(value: object) -> object:
+    """Return a timezone-naive representation of a datetime-like value."""
+
+    if isinstance(value, pd.Timestamp):
+        if value.tzinfo is None:
+            return value
+        try:
+            return value.tz_convert(None)
+        except TypeError:
+            return value.tz_localize(None)
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def _prepare_dataframe_for_excel(df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure a DataFrame contains only Excel-compatible datetime values."""
+
+    safe_df = df.copy()
+
+    datetime_columns = list(safe_df.select_dtypes(include=["datetimetz"]).columns)
+    for column in datetime_columns:
+        series = safe_df[column]
+        try:
+            safe_df[column] = series.dt.tz_convert(None)
+        except TypeError:
+            safe_df[column] = series.dt.tz_localize(None)
+
+    if isinstance(safe_df.index, pd.DatetimeIndex) and safe_df.index.tz is not None:
+        safe_df.index = safe_df.index.tz_convert(None)
+
+    for column in safe_df.columns:
+        if safe_df[column].dtype == "object":
+            safe_df[column] = safe_df[column].apply(_sanitize_datetime_value)
+
+    return safe_df
+
 
 def write_excel(
     out_path: str,
@@ -55,6 +97,16 @@ def write_excel(
 
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    def _safe_to_excel(
+        frame: pd.DataFrame,
+        *,
+        writer: pd.ExcelWriter,
+        sheet_name: str,
+        **kwargs,
+    ) -> None:
+        prepared = _prepare_dataframe_for_excel(frame)
+        prepared.to_excel(writer, sheet_name=sheet_name, **kwargs)
 
     metrics_info = continuous_metrics or {}
     structured_info = structured_metrics or {}
@@ -620,16 +672,36 @@ def write_excel(
             reads_by_face_df = None
 
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
-        summary_epc.to_excel(writer, index=False, sheet_name=SHEET_RESUMO)
+        _safe_to_excel(
+            summary_epc,
+            writer=writer,
+            sheet_name=SHEET_RESUMO,
+            index=False,
+        )
         unexpected_df = unexpected
         if unexpected_df is None:
             unexpected_df = pd.DataFrame(columns=summary_epc.columns)
-        unexpected_df.to_excel(writer, index=False, sheet_name=SHEET_UNEXPECTED)
-        ant_counts.to_excel(writer, index=False, sheet_name=SHEET_ANTENNA)
+        _safe_to_excel(
+            unexpected_df,
+            writer=writer,
+            sheet_name=SHEET_UNEXPECTED,
+            index=False,
+        )
+        _safe_to_excel(
+            ant_counts,
+            writer=writer,
+            sheet_name=SHEET_ANTENNA,
+            index=False,
+        )
         if positions_df is not None:
             sheet_posicoes = SHEET_POSICOES
             positions_to_write = positions_df.copy()
-            positions_to_write.to_excel(writer, index=False, sheet_name=sheet_posicoes)
+            _safe_to_excel(
+                positions_to_write,
+                writer=writer,
+                sheet_name=sheet_posicoes,
+                index=False,
+            )
             next_row = len(positions_to_write) + 2
             if isinstance(reads_by_face_df, pd.DataFrame) and not reads_by_face_df.empty:
                 reads_face_to_write = reads_by_face_df.rename(
@@ -640,16 +712,22 @@ def write_excel(
                         "participation_pct": "Participation (%)",
                     }
                 )
-                reads_face_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    reads_face_to_write,
+                    writer=writer,
                     sheet_name=sheet_posicoes,
+                    index=False,
                     startrow=next_row,
                 )
                 next_row += len(reads_face_to_write) + 2
         if metadata:
             md_df = pd.DataFrame(list(metadata.items()), columns=["Key", "Value"])
-            md_df.to_excel(writer, index=False, sheet_name=SHEET_METADATA)
+            _safe_to_excel(
+                md_df,
+                writer=writer,
+                sheet_name=SHEET_METADATA,
+                index=False,
+            )
 
         exec_sheet = SHEET_EXECUTIVE
         if executive_rows:
@@ -663,25 +741,32 @@ def write_excel(
                     }
                 ]
             )
-        exec_df.to_excel(writer, index=False, sheet_name=exec_sheet)
+        _safe_to_excel(
+            exec_df,
+            writer=writer,
+            sheet_name=exec_sheet,
+            index=False,
+        )
 
         if structured_info:
             sheet_structured = SHEET_STRUCTURED
             structured_row = 0
             if structured_rows:
                 structured_df = pd.DataFrame(structured_rows)
-                structured_df.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    structured_df,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(structured_df) + 2
             if not missing_expected_df.empty:
-                missing_expected_df.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    missing_expected_df,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(missing_expected_df) + 2
@@ -694,10 +779,11 @@ def write_excel(
                         "total_reads": "Total reads",
                     }
                 )
-                face_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    face_to_write,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(face_to_write) + 2
@@ -710,10 +796,11 @@ def write_excel(
                         "total_reads": "Total reads",
                     }
                 )
-                row_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    row_to_write,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(row_to_write) + 2
@@ -726,10 +813,11 @@ def write_excel(
                         "participation_pct": "Participation (%)",
                     }
                 )
-                reads_face_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    reads_face_to_write,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(reads_face_to_write) + 2
@@ -743,10 +831,11 @@ def write_excel(
                         "z_score": "Z-score",
                     }
                 )
-                hotspots_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    hotspots_to_write,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(hotspots_to_write) + 2
@@ -760,10 +849,11 @@ def write_excel(
                         "ObservedPosition": "Observed position",
                     }
                 )
-                location_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    location_to_write,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(location_to_write) + 2
@@ -775,26 +865,32 @@ def write_excel(
                         "participation_pct": "Participation (%)",
                     }
                 )
-                frequency_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    frequency_to_write,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(frequency_to_write) + 2
             if isinstance(missing_positions_df, pd.DataFrame) and not missing_positions_df.empty:
-                missing_positions_df.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    missing_positions_df,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                     startrow=structured_row,
                 )
                 structured_row += len(missing_positions_df) + 2
             if structured_row == 0:
-                pd.DataFrame({"Message": ["No structured metrics available."]}).to_excel(
-                    writer,
-                    index=False,
+                placeholder_df = pd.DataFrame(
+                    {"Message": ["No structured metrics available."]}
+                )
+                _safe_to_excel(
+                    placeholder_df,
+                    writer=writer,
                     sheet_name=sheet_structured,
+                    index=False,
                 )
 
         metrics_rows: list[dict[str, object]] = []
@@ -981,19 +1077,21 @@ def write_excel(
             start_row = 0
             if metrics_rows:
                 metrics_df = pd.DataFrame(metrics_rows)
-                metrics_df.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    metrics_df,
+                    writer=writer,
                     sheet_name=sheet_name,
+                    index=False,
                     startrow=start_row,
                 )
                 start_row += len(metrics_rows) + 2
             if alerts_lines:
                 alerts_df = pd.DataFrame({"Alerts": alerts_lines})
-                alerts_df.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    alerts_df,
+                    writer=writer,
                     sheet_name=sheet_name,
+                    index=False,
                     startrow=start_row,
                 )
                 start_row += len(alerts_lines) + 2
@@ -1005,10 +1103,11 @@ def write_excel(
                     per_minute_to_write["minute"] = per_minute_to_write["minute"].dt.strftime(
                         "%Y-%m-%d %H:%M"
                     )
-                per_minute_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    per_minute_to_write,
+                    writer=writer,
                     sheet_name=sheet_name,
+                    index=False,
                     startrow=start_row,
                 )
                 start_row += len(per_minute_to_write) + 2
@@ -1024,10 +1123,11 @@ def write_excel(
                         inactive_to_write[numeric_column] = inactive_to_write[
                             numeric_column
                         ].round(2)
-                inactive_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    inactive_to_write,
+                    writer=writer,
                     sheet_name=sheet_name,
+                    index=False,
                     startrow=start_row,
                 )
                 start_row += len(inactive_to_write) + 2
@@ -1037,26 +1137,30 @@ def write_excel(
                     concurrency_to_write["timestamp"] = concurrency_to_write["timestamp"].dt.strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
-                concurrency_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    concurrency_to_write,
+                    writer=writer,
                     sheet_name=sheet_name,
+                    index=False,
                     startrow=start_row,
                 )
                 start_row += len(concurrency_to_write) + 2
             if timeline_df is not None:
                 timeline_to_write = timeline_df.copy()
-                timeline_to_write.to_excel(
-                    writer,
-                    index=False,
+                _safe_to_excel(
+                    timeline_to_write,
+                    writer=writer,
                     sheet_name=sheet_name,
+                    index=False,
                     startrow=start_row,
                 )
             elif start_row == 0:
-                pd.DataFrame(
+                empty_message_df = pd.DataFrame(
                     {"Message": ["No continuous flow data available."]}
-                ).to_excel(
-                    writer,
-                    index=False,
+                )
+                _safe_to_excel(
+                    empty_message_df,
+                    writer=writer,
                     sheet_name=sheet_name,
+                    index=False,
                 )
