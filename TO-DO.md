@@ -23,7 +23,7 @@
 | 17 | Expand structured-mode KPIs in metrics/report | ✅ Done | AI Agent | Coverage, redundancy, balance, RSSI stability, read hotspots, frequency usage, location errors, and face distribution now surfaced across summaries and Excel |
 | 18 | Align Excel workbook sheet naming with executive KPIs | ✅ Done | AI Agent | Tabs renamed to mandated Portuguese titles and executive dashboard merges structured/continuous metrics |
 | 19 | Expand continuous-mode KPIs (dwell max, idle gaps, congestion) | ✅ Done | AI Agent | Session throughput, inactivity detection, congestion index, and global RSSI propagated to reports/summary |
-| 20 | Consolidate global RSSI KPIs and noise detector | ✅ Done | AI Agent | Funções compartilhadas calculam média/desvio, indicador de ruído e alimentam relatórios/sumários |
+| 20 | Consolidate global RSSI KPIs and noise detector | ✅ Done | AI Agent | Funções compartilhadas calculam média/desvio, indicador de ruído e agora exportam leituras/EPC para planilhas, sumários e modo contínuo |
 
 ---
 

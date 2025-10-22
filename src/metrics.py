@@ -192,12 +192,18 @@ def compile_global_rssi_metrics(
         else:
             indicator = f"Variação de RSSI calculada (σ={std:.2f} dBm)"
 
+    reads_per_epc_value: float | None
+    if np.isnan(reads_per_epc):
+        reads_per_epc_value = None
+    else:
+        reads_per_epc_value = float(reads_per_epc)
+
     return {
         "global_rssi_avg": avg,
         "global_rssi_std": std,
         "rssi_noise_flag": noise_flag,
         "rssi_noise_indicator": indicator,
-        "rssi_noise_reads_per_epc": reads_per_epc,
+        "rssi_noise_reads_per_epc": reads_per_epc_value,
     }
 
 

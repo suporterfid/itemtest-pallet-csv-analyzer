@@ -192,6 +192,12 @@ def compose_summary_text(
                 f"- Indicador de ruído RSSI: {noise_indicator_structured}"
             )
 
+        noise_reads_structured = structured_info.get("rssi_noise_reads_per_epc")
+        if noise_reads_structured is not None and not pd.isna(noise_reads_structured):
+            structured_lines.append(
+                f"- Leituras/EPC (indicador de ruído): {float(noise_reads_structured):.2f}"
+            )
+
         top_performer = structured_info.get("top_performer_antenna") or {}
         performer_value = None
         if isinstance(top_performer, dict):
@@ -480,6 +486,12 @@ def compose_summary_text(
         if noise_indicator_continuous:
             continuous_lines.append(
                 f"- Indicador de ruído RSSI: {noise_indicator_continuous}"
+            )
+
+        noise_reads_continuous = details.get("rssi_noise_reads_per_epc")
+        if noise_reads_continuous is not None and not pd.isna(noise_reads_continuous):
+            continuous_lines.append(
+                f"- Leituras/EPC (indicador de ruído): {float(noise_reads_continuous):.2f}"
             )
 
         alerts = details.get("alerts")

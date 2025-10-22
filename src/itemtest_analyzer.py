@@ -27,7 +27,6 @@ from .metrics import (
     summarize_by_epc,
     summarize_by_antenna,
     compile_structured_kpis,
-    compile_global_rssi_metrics,
 )
 from .plots import (
     plot_reads_by_epc,
@@ -803,8 +802,6 @@ def process_continuous_file(
     summary["epc_status"] = summary["expected_epc"].map({True: "Expected", False: "Unexpected"})
     unexpected = summary.loc[~mask_expected].copy()
 
-    global_rssi_metrics = compile_global_rssi_metrics(df, summary)
-
     dominant_antenna = None
     if ant_counts is not None and not ant_counts.empty:
         try:
@@ -857,7 +854,13 @@ def process_continuous_file(
         "concurrency_average": result.concurrency_average,
         "concurrency_timeline": result.concurrency_timeline,
     }
-    continuous_details.update(global_rssi_metrics)
+    continuous_details.update(
+        {
+            "rssi_noise_flag": result.rssi_noise_flag,
+            "rssi_noise_indicator": result.rssi_noise_indicator,
+            "rssi_noise_reads_per_epc": result.rssi_noise_reads_per_epc,
+        }
+    )
     if peak_value is not None:
         continuous_details["epcs_per_minute_peak"] = peak_value
     if peak_time is not None:

@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-from .metrics import calculate_global_rssi_average, calculate_global_rssi_std
+from .metrics import compile_global_rssi_metrics
 
 LOGGER = logging.getLogger("itemtest.continuous")
 
@@ -41,6 +41,9 @@ class ContinuousFlowResult:
     congestion_index: float | None
     global_rssi_avg: float | None
     global_rssi_std: float | None
+    rssi_noise_flag: bool | None
+    rssi_noise_indicator: str | None
+    rssi_noise_reads_per_epc: float | None
     concurrency_peak: int | None
     concurrency_peak_time: pd.Timestamp | None
     concurrency_average: float | None
@@ -85,6 +88,9 @@ class ContinuousFlowResult:
             "congestion_index": self.congestion_index,
             "global_rssi_avg": self.global_rssi_avg,
             "global_rssi_std": self.global_rssi_std,
+            "rssi_noise_flag": self.rssi_noise_flag,
+            "rssi_noise_indicator": self.rssi_noise_indicator,
+            "rssi_noise_reads_per_epc": self.rssi_noise_reads_per_epc,
             "concurrency_peak": self.concurrency_peak,
             "concurrency_peak_time": _convert_timestamp(self.concurrency_peak_time),
             "concurrency_average": self.concurrency_average,
@@ -146,6 +152,9 @@ def analyze_continuous_flow(
             congestion_index=None,
             global_rssi_avg=None,
             global_rssi_std=None,
+            rssi_noise_flag=None,
+            rssi_noise_indicator=None,
+            rssi_noise_reads_per_epc=None,
             concurrency_peak=None,
             concurrency_peak_time=None,
             concurrency_average=None,
@@ -201,6 +210,9 @@ def analyze_continuous_flow(
             congestion_index=None,
             global_rssi_avg=None,
             global_rssi_std=None,
+            rssi_noise_flag=None,
+            rssi_noise_indicator=None,
+            rssi_noise_reads_per_epc=None,
             concurrency_peak=None,
             concurrency_peak_time=None,
             concurrency_average=None,
@@ -209,13 +221,6 @@ def analyze_continuous_flow(
     working = working.sort_values(["EPC", "Timestamp", "Antenna"]).reset_index(drop=True)
 
     total_reads = int(working.shape[0])
-
-    global_rssi_avg = calculate_global_rssi_average(working)
-    global_rssi_std = calculate_global_rssi_std(working)
-    if pd.isna(global_rssi_avg):
-        global_rssi_avg = None
-    if pd.isna(global_rssi_std):
-        global_rssi_std = None
 
     per_epc_records: list[dict[str, Any]] = []
     timeline_records: list[dict[str, Any]] = []
@@ -318,6 +323,19 @@ def analyze_continuous_flow(
         per_epc_summary = per_epc_summary.sort_values(
             by=["first_time", "EPC"], na_position="last"
         ).reset_index(drop=True)
+
+    global_metrics = compile_global_rssi_metrics(working, per_epc_summary)
+    global_rssi_avg = global_metrics.get("global_rssi_avg")
+    if global_rssi_avg is not None and pd.isna(global_rssi_avg):
+        global_rssi_avg = None
+    global_rssi_std = global_metrics.get("global_rssi_std")
+    if global_rssi_std is not None and pd.isna(global_rssi_std):
+        global_rssi_std = None
+    rssi_noise_flag = global_metrics.get("rssi_noise_flag")
+    rssi_noise_indicator = global_metrics.get("rssi_noise_indicator")
+    rssi_noise_reads_per_epc = global_metrics.get("rssi_noise_reads_per_epc")
+    if isinstance(rssi_noise_reads_per_epc, float) and pd.isna(rssi_noise_reads_per_epc):
+        rssi_noise_reads_per_epc = None
     if global_interval_max > 0:
         tag_dwell_time_max = float(global_interval_max)
 
@@ -544,6 +562,9 @@ def analyze_continuous_flow(
         congestion_index=congestion_index,
         global_rssi_avg=global_rssi_avg,
         global_rssi_std=global_rssi_std,
+        rssi_noise_flag=rssi_noise_flag,
+        rssi_noise_indicator=rssi_noise_indicator,
+        rssi_noise_reads_per_epc=rssi_noise_reads_per_epc,
         concurrency_peak=concurrency_peak,
         concurrency_peak_time=concurrency_peak_time,
         concurrency_average=concurrency_average,

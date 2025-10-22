@@ -294,6 +294,9 @@ class TestReportWorkbookStructure(unittest.TestCase):
             exec_values.get("RSSI noise indicator"),
             "Estabilidade de RSSI dentro do esperado (σ=3.20 dBm; 6.5 leituras/EPC)",
         )
+        self.assertAlmostEqual(
+            float(exec_values.get("Reads per EPC (noise check)")), 6.5, places=2
+        )
         self.assertEqual(
             exec_values.get("Top performer antenna"),
             "3 (57.8% of reads), 120 reads",
@@ -306,6 +309,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
         self.assertIn("Expected EPC", flattened)
         self.assertIn("RSSI noise indicator", flattened)
         self.assertIn("Global RSSI mean (dBm)", flattened)
+        self.assertIn("Reads per EPC (noise check)", flattened)
 
         positions_values = positions_sheet.astype(str).fillna("")
         self.assertIn("Participation (%)", positions_values.values)
@@ -403,6 +407,9 @@ class TestReportWorkbookStructure(unittest.TestCase):
             str(exec_values["RSSI noise indicator"]),
             "Variação elevada sem ganho de EPCs (σ=1.25 dBm; 15.0 leituras/EPC)",
         )
+        self.assertAlmostEqual(
+            float(exec_values["Reads per EPC (noise check)"]), 15.0, places=2
+        )
         self.assertEqual(
             str(exec_values["Peak active EPCs/min"]), "60 at 2025-01-02 08:17:00"
         )
@@ -420,6 +427,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
         self.assertTrue(any("start_time" in str(value) for value in first_column))
         self.assertEqual(str(exec_values["Dominant antenna"]), "4")
         self.assertIn("RSSI noise indicator", first_column)
+        self.assertIn("Reads per EPC (noise check)", first_column)
 
 
 class TestReportMetadataSheet(unittest.TestCase):

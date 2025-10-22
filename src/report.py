@@ -363,6 +363,13 @@ def write_excel(
             {"Indicator": "RSSI noise indicator", "Value": noise_indicator_exec}
         )
 
+    noise_reads_exec = _first_available("rssi_noise_reads_per_epc")
+    _append_executive(
+        "Reads per EPC (noise check)",
+        noise_reads_exec,
+        lambda value: round(float(value), 2),
+    )
+
     coverage_rate = structured_info.get("coverage_rate")
     if coverage_rate is not None and not pd.isna(coverage_rate):
         expected_total = structured_info.get("expected_total")
@@ -484,6 +491,15 @@ def write_excel(
                 {
                     "Metric": "RSSI noise indicator",
                     "Value": noise_indicator_structured,
+                }
+            )
+
+        noise_reads_structured = structured_info.get("rssi_noise_reads_per_epc")
+        if noise_reads_structured is not None and not pd.isna(noise_reads_structured):
+            structured_rows.append(
+                {
+                    "Metric": "Reads per EPC (noise check)",
+                    "Value": f"{float(noise_reads_structured):.2f}",
                 }
             )
 
@@ -929,6 +945,11 @@ def write_excel(
         _append_metric(
             "Global RSSI std (dBm)",
             metrics_info.get("global_rssi_std"),
+            lambda value: round(float(value), 2),
+        )
+        _append_metric(
+            "Reads per EPC (noise check)",
+            metrics_info.get("rssi_noise_reads_per_epc"),
             lambda value: round(float(value), 2),
         )
         noise_indicator_metric = metrics_info.get("rssi_noise_indicator")
