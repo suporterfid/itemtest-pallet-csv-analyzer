@@ -129,6 +129,7 @@ class TestComposeSummaryText(unittest.TestCase):
         self.assertIn("RSSI médio global", text)
         self.assertIn("Desvio padrão global de RSSI", text)
         self.assertIn("Indicador de ruído RSSI", text)
+        self.assertIn("Leituras/EPC (indicador de ruído): 18.00", text)
 
     def test_summary_highlights_continuous_new_metrics(self) -> None:
         metadata: dict = {}
@@ -186,6 +187,7 @@ class TestComposeSummaryText(unittest.TestCase):
         self.assertIn("Períodos inativos (>5× janela)", summary_text)
         self.assertIn("RSSI médio global", summary_text)
         self.assertIn("Indicador de ruído RSSI", summary_text)
+        self.assertIn("Leituras/EPC (indicador de ruído): 3.00", summary_text)
 
 
 class TestCliSummaryFlag(unittest.TestCase):
