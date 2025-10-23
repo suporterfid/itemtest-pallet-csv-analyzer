@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### ✨ Features
+- Added a structured-mode pallet heatmap that pivots layout rows/faces into a
+  density map saved as `pallet_heatmap.png` alongside existing charts.
 - Added an RSSI vs Frequency scatter plot that is generated for structured and
   continuous analyses, filtering invalid readings to highlight RF channel
   anomalies alongside existing chart artifacts.

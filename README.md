@@ -3,7 +3,7 @@
 ItemTestAnalyzer processes **Impinj ItemTest** CSV exports and produces KPI-rich reports for both controlled pallet experiments and free-flow operational reads. The CLI automatically prepares Excel workbooks, plots, and textual summaries that highlight tag coverage, antenna behaviour, dwell time, and throughput trends across the analysed sessions.
 
 ## Key Features
-- **Structured mode** – combine CSV reads with a pallet layout (CSV/XLSX/Markdown) to compute coverage, redundancy, antenna balance, RSSI stability, and layout heatmaps. Expected EPCs can come from the layout and/or a custom list.
+- **Structured mode** – combine CSV reads with a pallet layout (CSV/XLSX/Markdown) to compute coverage, redundancy, antenna balance, RSSI stability, and pallet heatmaps that highlight read density per face/row. Expected EPCs can come from the layout and/or a custom list.
 - **Continuous mode** – detect EPC entry/exit cycles, dwell time, throughput per minute, concurrency peaks, antenna direction hints, and anomaly/alert flags when tags are not known in advance.
 - **Rich reporting** – generate per-file Excel workbooks, PNG charts, human-readable summaries, CSV exports, and an optional consolidated executive summary workbook.
 - **Expected EPC list support** – accept inline tokens or external files with full EPCs/suffixes to classify expected vs. unexpected tags even without a pallet layout.
@@ -85,7 +85,7 @@ For each CSV file, the tool writes artefacts under `--output`:
   | `Fluxo_Contínuo` | Continuous metrics, alerts, EPC/minute counts, concurrency timeline, and dwell events (continuous mode). |
   | `Indicadores_Executivos` | Executive KPI snapshot (always present). |
   | `Metadata` | Parsed ItemTest metadata (reader, session, powers, etc.). |
-- **PNG charts** under `<output>/graficos/<file_stem>/` (or `<file_stem>_continuous/`), including reads per EPC, reads per antenna, RSSI boxplots, EPC activity over time, and antenna participation heatmaps (continuous mode).
+- **PNG charts** under `<output>/graficos/<file_stem>/` (or `<file_stem>_continuous/`), including reads per EPC, reads per antenna, RSSI boxplots, pallet heatmaps (structured mode), EPC activity over time, and antenna participation heatmaps (continuous mode).
 - **Logs and summaries** under `<output>/logs/`, such as structured summaries, continuous summaries, alerts, EPC-per-minute CSVs, and concurrency timelines. The CLI also stores a global log at `output/logs/<date>_itemtest_analyzer.log` relative to the project root.
 
 When `--summary` is enabled, `executive_summary.xlsx` is saved to the output directory. It contains:
