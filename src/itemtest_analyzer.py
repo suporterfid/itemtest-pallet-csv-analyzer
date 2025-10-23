@@ -35,6 +35,7 @@ from .plots import (
     plot_rssi_vs_frequency,
     plot_active_epcs_over_time,
     plot_antenna_heatmap,
+    plot_pallet_heatmap,
 )
 from .report import write_excel
 from .pallet_layout import (
@@ -617,6 +618,9 @@ def process_file(
     summary = summarize_by_epc(df)
     ant_counts = summarize_by_antenna(df)
 
+    figures_dir = out_dir / "graficos" / csv_path.stem
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
     expected_suffixes: set[str] = set()
     expected_full: set[str] = set()
     if expected_registry:
@@ -664,6 +668,12 @@ def process_file(
                     )
         positions_df = pd.DataFrame(coverage_records)
 
+        plot_pallet_heatmap(
+            positions_df,
+            str(figures_dir),
+            title=f"Pallet heatmap — {csv_path.name}",
+        )
+
         sets = build_expected_sets(layout_df)
         expected_suffixes.update(sets["expected_suffixes"])
         expected_full.update(sets["expected_full"])
@@ -704,7 +714,6 @@ def process_file(
     summary_log.write_text(summary_text + "\n", encoding="utf-8")
     LOGGER.info("Summary saved to: %s", summary_log)
 
-    figures_dir = out_dir / "graficos" / csv_path.stem
     plot_reads_by_epc(summary, str(figures_dir), title=f"Reads by EPC — {csv_path.name}")
     plot_reads_by_antenna(
         ant_counts,

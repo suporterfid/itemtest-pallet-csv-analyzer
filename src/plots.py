@@ -237,3 +237,113 @@ def plot_antenna_heatmap(
     plt.tight_layout()
     plt.savefig(out / "antenna_heatmap.png")
     plt.close()
+
+
+def plot_pallet_heatmap(
+    positions_df: pd.DataFrame | None,
+    outdir: str,
+    title: str = "Pallet read density heatmap",
+) -> None:
+    """Plot a pallet heatmap using layout rows/faces against read totals.
+
+    Parameters
+    ----------
+    positions_df:
+        DataFrame containing at least the columns ``Row``, ``Face``, and
+        ``total_reads`` produced by the structured-layout coverage logic. Each
+        row represents a pallet position (row/face) with accumulated reads.
+    outdir:
+        Destination directory that will store the ``pallet_heatmap.png`` file.
+    title:
+        Custom chart title shown above the heatmap.
+    """
+
+    if positions_df is None or positions_df.empty:
+        return
+
+    required_columns = {"Row", "Face", "total_reads"}
+    if not required_columns.issubset(positions_df.columns):
+        return
+
+    working = positions_df.copy()
+    working["Row"] = working["Row"].astype(str)
+    working["Face"] = working["Face"].astype(str)
+    working["total_reads"] = pd.to_numeric(
+        working["total_reads"], errors="coerce"
+    ).fillna(0.0)
+
+    if working.empty:
+        return
+
+    # Preserve the layout order as defined in the original dataframe
+    def _unique_preserve_order(series: pd.Series) -> list[str]:
+        seen: list[str] = []
+        for item in series:
+            label = str(item)
+            if label not in seen:
+                seen.append(label)
+        return seen
+
+    row_labels = _unique_preserve_order(working["Row"])
+    face_labels = _unique_preserve_order(working["Face"])
+
+    pivot = (
+        working.pivot_table(
+            index="Row",
+            columns="Face",
+            values="total_reads",
+            aggfunc="sum",
+            fill_value=0.0,
+        )
+        .reindex(index=row_labels, columns=face_labels)
+        .astype(float)
+    )
+
+    if pivot.empty:
+        return
+
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    data = pivot.to_numpy()
+    n_rows, n_cols = data.shape
+    fig_width = max(6.0, n_cols * 1.2)
+    fig_height = max(4.0, n_rows * 0.7)
+
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    im = ax.imshow(data, aspect="auto", cmap="YlGn")
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("Total reads")
+
+    ax.set_xticks(range(n_cols))
+    ax.set_xticklabels(face_labels, rotation=45, ha="right")
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels(row_labels)
+    ax.set_xlabel("Face")
+    ax.set_ylabel("Row")
+    ax.set_title(title)
+
+    for row_idx in range(n_rows):
+        for col_idx in range(n_cols):
+            value = data[row_idx, col_idx]
+            if pd.isna(value):
+                continue
+            normalized = im.norm(value)
+            text_color = "white" if normalized > 0.6 else "black"
+            if float(value).is_integer():
+                label = f"{int(value)}"
+            else:
+                label = f"{value:.1f}"
+            ax.text(
+                col_idx,
+                row_idx,
+                label,
+                ha="center",
+                va="center",
+                color=text_color,
+                fontsize=9,
+            )
+
+    fig.tight_layout()
+    fig.savefig(out / "pallet_heatmap.png", dpi=150)
+    plt.close(fig)

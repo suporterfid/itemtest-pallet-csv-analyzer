@@ -5,7 +5,7 @@
 | ID | Task | Priority | Responsible | Notes |
 |----|-------|-----------|--------------|-------|
 | 01 | Add Streamlit dashboard for local visualization | 🔥 High | AI Agent / Developer | Simple upload UI with EPC stats + coverage charts |
-| 02 | Implement pallet heatmap & RSSI/Frequency scatter generator | ✅ Done | AI Agent | Heatmap plus RSSI vs Frequency scatter now generated in CLI outputs |
+| 02 | Implement pallet heatmap & RSSI/Frequency scatter generator | ✅ Done | AI Agent | Structured run now saves `pallet_heatmap.png` and RSSI vs Frequency scatter charts |
 | 03 | Validate layout file content consistency | ⚡ Medium | Developer | Warn if tags in layout are missing from CSVs |
 | 04 | Add RSSI standard deviation per EPC | ✅ Done | Developer | Continuous-mode summary now includes `rssi_std` per EPC |
 | 05 | Export consolidated CSV for Power BI | ⚡ Medium | Developer | `--summary` workbook now consolidates KPIs; add CSV export for Power BI ingestion |

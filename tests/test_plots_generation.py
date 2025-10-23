@@ -102,6 +102,45 @@ def test_process_file_generates_rssi_frequency_plot(
     assert expected_plot.stat().st_size > 0
 
 
+def test_process_file_generates_pallet_heatmap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    structured_dataframe: pd.DataFrame,
+    _stub_write_excel: Callable[..., None],
+) -> None:
+    """Ensure the structured pipeline exports the pallet layout heatmap."""
+
+    csv_path = tmp_path / "structured.csv"
+    csv_path.write_text("placeholder", encoding="utf-8")
+
+    layout_df = pd.DataFrame(
+        [
+            {
+                "Row": "1",
+                "Rear": ["143"],
+                "Left_Side": ["144"],
+                "Right_Side": ["145"],
+                "Front": ["142"],
+            }
+        ],
+        columns=["Row", "Rear", "Left_Side", "Right_Side", "Front"],
+    )
+
+    metadata = {"Hostname": "test-reader"}
+
+    def _fake_reader(path: str):
+        assert path == str(csv_path)
+        return structured_dataframe.copy(deep=True), metadata.copy()
+
+    monkeypatch.setattr(itemtest_analyzer, "read_itemtest_csv", _fake_reader)
+
+    itemtest_analyzer.process_file(csv_path, tmp_path, layout_df=layout_df)
+
+    expected_plot = tmp_path / "graficos" / "structured" / "pallet_heatmap.png"
+    assert expected_plot.exists(), "Pallet heatmap was not created."
+    assert expected_plot.stat().st_size > 0
+
+
 def test_process_continuous_file_generates_rssi_frequency_plot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
