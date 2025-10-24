@@ -37,6 +37,7 @@ from .plots import (
     plot_rssi_vs_frequency,
     plot_active_epcs_over_time,
     plot_throughput_per_minute,
+    plot_dwell_vs_rssi,
     plot_antenna_heatmap,
     plot_pallet_heatmap,
 )
@@ -932,6 +933,9 @@ def process_continuous_file(
                 "initial_antenna",
                 "final_antenna",
                 "direction_estimate",
+                "rssi_avg",
+                "rssi_std",
+                "max_interval_duration",
             ]
         )
     if "EPC" not in summary.columns:
@@ -1147,6 +1151,16 @@ def process_continuous_file(
             result.reads_per_minute,
             str(fig_dir),
             title=f"Reads per minute — {csv_path.name}",
+        )
+    if {
+        "duration_present",
+        "rssi_avg",
+        "total_reads",
+    }.issubset(summary.columns) and summary["rssi_avg"].notna().any():
+        plot_dwell_vs_rssi(
+            summary,
+            str(fig_dir),
+            title=f"Dwell vs RSSI — {csv_path.name}",
         )
     plot_antenna_heatmap(
         summary,

@@ -30,8 +30,10 @@ def test_analyze_continuous_flow_metrics(sample_continuous_dataframe: pd.DataFra
     result = analyze_continuous_flow(sample_continuous_dataframe, window_seconds=2)
 
     assert "rssi_std" in result.per_epc_summary.columns
+    assert "rssi_avg" in result.per_epc_summary.columns
     epc1_row = result.per_epc_summary.set_index("EPC").loc["EPC1"]
     assert pytest.approx(epc1_row["rssi_std"], rel=1e-6) == pytest.approx(0.816496580927726, rel=1e-6)
+    assert pytest.approx(epc1_row["rssi_avg"], rel=1e-6) == pytest.approx(-51.0, rel=1e-6)
 
     assert not result.concurrency_timeline.empty
     assert int(result.concurrency_peak or 0) == 2
@@ -87,6 +89,8 @@ def test_analyze_continuous_flow_sparse_reads() -> None:
     assert int(result.reads_per_minute.iloc[0]) == 2
     assert int(result.reads_per_minute.sum()) == 2
     assert pytest.approx(result.global_rssi_avg or 0.0, rel=1e-6) == pytest.approx(-40.5, rel=1e-6)
+    summary_row = result.per_epc_summary.set_index("EPC").loc["TAG1"]
+    assert pytest.approx(summary_row["rssi_avg"], rel=1e-6) == pytest.approx(-40.5, rel=1e-6)
     assert pytest.approx(result.global_rssi_std or 0.0, rel=1e-6) == pytest.approx(0.5, rel=1e-6)
 
 

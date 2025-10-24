@@ -183,3 +183,12 @@ def test_process_continuous_file_generates_rssi_frequency_plot(
     )
     assert throughput_plot.exists(), "Throughput per minute plot was not created."
     assert throughput_plot.stat().st_size > 0
+
+    dwell_plot = (
+        tmp_path
+        / "graficos"
+        / f"{csv_path.stem}_continuous"
+        / "dwell_vs_rssi.png"
+    )
+    assert dwell_plot.exists(), "Dwell vs RSSI bubble chart was not created."
+    assert dwell_plot.stat().st_size > 0
