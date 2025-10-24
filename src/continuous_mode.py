@@ -298,11 +298,13 @@ def analyze_continuous_flow(
         first_seen = intervals["entry"].iloc[0] if not intervals.empty else None
         last_seen = intervals["exit"].iloc[-1] - window_td if not intervals.empty else None
 
+        rssi_avg = None
         rssi_std = None
         if "RSSI" in sorted_group.columns:
             rssi_numeric = pd.to_numeric(sorted_group["RSSI"], errors="coerce")
             rssi_numeric = rssi_numeric.dropna()
             if not rssi_numeric.empty:
+                rssi_avg = float(rssi_numeric.mean())
                 rssi_std = float(rssi_numeric.std(ddof=0))
 
         initial_antenna = _first_valid_antenna(sorted_group["Antenna"].tolist())
@@ -342,6 +344,7 @@ def analyze_continuous_flow(
                 "initial_antenna": initial_antenna,
                 "final_antenna": final_antenna,
                 "direction_estimate": direction_estimate,
+                "rssi_avg": rssi_avg,
                 "rssi_std": rssi_std,
                 "max_interval_duration": interval_max,
             }

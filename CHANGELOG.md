@@ -16,6 +16,9 @@
 - Added a continuous-mode throughput timeline capturing total reads per minute
   and persisting the `throughput_per_minute.png` chart alongside existing
   figures.
+- Calculated continuous-mode average RSSI per EPC and introduced the
+  `dwell_vs_rssi.png` bubble chart to relate dwell time, signal strength, and
+  read volume for faster congestion diagnosis.
 - Introduced a `--summary` CLI flag that aggregates per-file KPIs into an
   `executive_summary.xlsx` workbook for quick executive reviews of batch
   processing runs.

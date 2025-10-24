@@ -198,6 +198,81 @@ def plot_throughput_per_minute(
     plt.close()
 
 
+def plot_dwell_vs_rssi(
+    df_summary: pd.DataFrame,
+    outdir: str,
+    title: str = "Dwell time vs average RSSI",
+) -> None:
+    """Render a bubble chart correlating dwell time and RSSI strength.
+
+    Parameters
+    ----------
+    df_summary:
+        Continuous-mode per-EPC summary with ``duration_present``, ``rssi_avg`` and
+        ``total_reads`` columns.
+    outdir:
+        Destination directory for the output image. Created automatically when
+        missing.
+    title:
+        Custom chart title displayed above the scatter plot.
+    """
+
+    if df_summary is None or df_summary.empty:
+        return
+
+    required_columns = {"duration_present", "rssi_avg", "total_reads"}
+    if not required_columns.issubset(df_summary.columns):
+        return
+
+    working = pd.DataFrame(
+        {
+            "duration_present": pd.to_numeric(
+                df_summary["duration_present"], errors="coerce"
+            ),
+            "rssi_avg": pd.to_numeric(df_summary["rssi_avg"], errors="coerce"),
+            "total_reads": pd.to_numeric(df_summary["total_reads"], errors="coerce"),
+        }
+    ).dropna(subset=["duration_present", "rssi_avg"])
+
+    if working.empty:
+        return
+
+    working = working.loc[working["total_reads"] > 0]
+    if working.empty:
+        return
+
+    max_reads = float(working["total_reads"].max())
+    if max_reads <= 0:
+        return
+
+    size_scale = 400.0 / max_reads
+    working["bubble_size"] = working["total_reads"].astype(float) * size_scale
+    working.loc[working["bubble_size"] < 20, "bubble_size"] = 20.0
+
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(8, 5))
+    scatter = plt.scatter(
+        working["duration_present"],
+        working["rssi_avg"],
+        s=working["bubble_size"],
+        alpha=0.6,
+        c=working["total_reads"],
+        cmap="viridis",
+        edgecolors="k",
+        linewidths=0.5,
+    )
+    plt.colorbar(scatter, label="Total reads")
+    plt.title(title)
+    plt.xlabel("Dwell time (s)")
+    plt.ylabel("Average RSSI (dBm)")
+    plt.grid(alpha=0.3, linestyle="--", linewidth=0.5)
+    plt.tight_layout()
+    plt.savefig(out / "dwell_vs_rssi.png", dpi=150)
+    plt.close()
+
+
 def plot_antenna_heatmap(
     per_epc_summary: pd.DataFrame,
     outdir: str,

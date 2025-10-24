@@ -28,6 +28,7 @@
 | 22 | Update reporting templates for new KPI set | ⚡ Medium | Developer | Refresh Excel/summary templates so new KPIs display in Indicadores_Executivos and structured KPI tabs |
 | 23 | Validate EPC header 331A handling in parser/export | ⚡ Medium | Developer | Confirm parser normalizes 331A headers and reports surface EPC fields without data loss |
 | 24 | Add throughput per minute visualization to continuous mode | ✅ Done | AI Agent | Throughput series now feeds `throughput_per_minute.png` and summary metrics |
+| 25 | Plot dwell time versus RSSI averages in continuous mode | ✅ Done | AI Agent | Continuous summary now stores `rssi_avg` and exports `dwell_vs_rssi.png` with bubble sizes based on total reads |
 
 ---
 
