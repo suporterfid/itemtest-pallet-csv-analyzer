@@ -266,6 +266,8 @@ SUMMARY_COLUMN_ORDER = [
     "excel_report",
     "summary_log",
     "logistics_total_epcs",
+    "logistics_expected_epcs_count",
+    "logistics_read_rate_pct",
     "logistics_attempt_success_rate_pct",
     "logistics_failure_rate_pct",
     "logistics_cycle_time_seconds",
@@ -273,6 +275,7 @@ SUMMARY_COLUMN_ORDER = [
     "logistics_concurrent_capacity",
     "logistics_concurrent_capacity_avg",
     "logistics_reader_uptime_pct",
+    "logistics_missed_epcs_count",
 ]
 
 
@@ -371,6 +374,12 @@ def _register_structured_summary(
 
     logistics_info = (structured_metrics or {}).get("logistics_metrics") or {}
     record["logistics_total_epcs"] = _clean_int(logistics_info.get("total_logistics_epcs"))
+    record["logistics_expected_epcs_count"] = _clean_int(
+        logistics_info.get("expected_logistics_epcs_count")
+    )
+    record["logistics_read_rate_pct"] = _clean_float(
+        logistics_info.get("logistics_read_rate_pct")
+    )
     record["logistics_attempt_success_rate_pct"] = _clean_float(
         logistics_info.get("attempt_success_rate_pct")
     )
@@ -391,6 +400,9 @@ def _register_structured_summary(
     )
     record["logistics_reader_uptime_pct"] = _clean_float(
         logistics_info.get("reader_uptime_pct")
+    )
+    record["logistics_missed_epcs_count"] = _clean_int(
+        logistics_info.get("missed_logistics_epcs_count")
     )
 
     summary_records.append(record)
@@ -497,6 +509,12 @@ def _register_continuous_summary(
 
     logistics_info = (continuous_details or {}).get("logistics_metrics") or {}
     record["logistics_total_epcs"] = _clean_int(logistics_info.get("total_logistics_epcs"))
+    record["logistics_expected_epcs_count"] = _clean_int(
+        logistics_info.get("expected_logistics_epcs_count")
+    )
+    record["logistics_read_rate_pct"] = _clean_float(
+        logistics_info.get("logistics_read_rate_pct")
+    )
     record["logistics_attempt_success_rate_pct"] = _clean_float(
         logistics_info.get("attempt_success_rate_pct")
     )
@@ -517,6 +535,9 @@ def _register_continuous_summary(
     )
     record["logistics_reader_uptime_pct"] = _clean_float(
         logistics_info.get("reader_uptime_pct")
+    )
+    record["logistics_missed_epcs_count"] = _clean_int(
+        logistics_info.get("missed_logistics_epcs_count")
     )
 
     summary_records.append(record)
@@ -691,6 +712,13 @@ def generate_consolidated_summary(
         "global_rssi_avg",
         "global_rssi_std",
         "rssi_noise_reads_per_epc",
+        "logistics_read_rate_pct",
+        "logistics_attempt_success_rate_pct",
+        "logistics_failure_rate_pct",
+        "logistics_cycle_time_seconds",
+        "logistics_duplicate_reads_per_tote",
+        "logistics_concurrent_capacity_avg",
+        "logistics_reader_uptime_pct",
     ]
     for column in float_candidates:
         if column in per_file_df.columns:
@@ -802,6 +830,7 @@ def process_file(
         summary,
         metadata,
         positions_df=positions_df,
+        expected_full=expected_full,
     )
     structured_metrics["logistics_metrics"] = logistics_metrics
 
@@ -1002,6 +1031,7 @@ def process_continuous_file(
             "logistics_per_tote_summary": result.logistics_per_tote_summary,
             "logistics_concurrency_timeline": result.logistics_concurrency_timeline,
         },
+        expected_full=expected_full,
     )
     continuous_details["logistics_metrics"] = logistics_metrics
 

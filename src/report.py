@@ -688,6 +688,8 @@ def write_excel(
             summary_entries: list[dict[str, object]] = []
             for key, label in [
                 ("total_logistics_epcs", "Total de Cajas Leydo"),
+                ("expected_logistics_epcs_count", "Logistics totes esperados (331A)"),
+                ("logistics_read_rate_pct", "LogisticsReadRate331A (%)"),
                 ("attempt_success_rate_pct", "AttemptSuccessRate (%)"),
                 ("attempt_failure_rate_pct", "Tasa de fallas de leitura (%)"),
                 ("tote_cycle_time_seconds", "Tiempo promedio de lectura por tote (s)"),
@@ -696,6 +698,7 @@ def write_excel(
                 ("concurrent_capacity", "Capacidad de lectura simultánea"),
                 ("concurrent_capacity_avg", "Capacidad simultánea promedio"),
                 ("reader_uptime_pct", "Disponibilidad del sistema (%)"),
+                ("missed_logistics_epcs_count", "Missed Logistics EPCs"),
             ]:
                 value = logistics_info.get(key)
                 if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -747,6 +750,20 @@ def write_excel(
                     startrow=logistics_row,
                 )
                 logistics_row += len(attempts_copy) + 2
+
+            missed_epcs = logistics_info.get("missed_logistics_epcs")
+            if isinstance(missed_epcs, (list, tuple, set)) and missed_epcs:
+                missed_df = pd.DataFrame(
+                    {"Missed Logistics EPCs": list(missed_epcs)}
+                )
+                _safe_to_excel(
+                    missed_df,
+                    writer=writer,
+                    sheet_name=sheet_logistics,
+                    index=False,
+                    startrow=logistics_row,
+                )
+                logistics_row += len(missed_df) + 2
 
             per_tote_summary = logistics_info.get("logistics_per_tote_summary")
             if isinstance(per_tote_summary, pd.DataFrame) and not per_tote_summary.empty:
