@@ -151,6 +151,22 @@ Quando **nenhum arquivo de layout** for fornecido ou `--mode continuous` for inf
 | `FrequencyUsage`         | Faixas de frequência mais utilizadas         | Ambos       | Técnico   |
 | `ModePerformance`        | Comparativo de ModeIndex vs. taxa de leitura | Ambos       | Técnico   |
 | `NoiseIndicator`         | RSSI alto sem EPC → possível interferência   | Ambos       | Técnico   |
+| `Total de Cajas Leydo`                 | Quantidade de totes/caixas com leitura válida         | Structured  | Executivo |
+| `Tasa promedio de lectura por intento` | Conversão média de tentativas de leitura em sucesso   | Ambos       | Executivo |
+| `Tiempo promedio de lectura por tote`  | Tempo médio necessário para completar a leitura de cada tote | Structured  | Executivo |
+| `Tasa de fallas de leitura`            | % de tentativas de leitura que não retornam EPC válido | Ambos       | Técnico   |
+| `Tasa de lecturas duplicadas`          | % de eventos redundantes sobre o total de leituras    | Ambos       | Técnico   |
+| `Cobertura del área de leitura`        | % da área/posições do layout efetivamente coberta     | Structured  | Executivo |
+| `Capacidad de lectura simultánea`      | Nº médio de totes/pallets lidos ao mesmo tempo        | Continuous  | Executivo |
+| `Disponibilidad del sistema`           | % de tempo com leitor operacional e registrando dados | Ambos       | Executivo |
+
+Cada métrica deve ser apresentada nos relatórios executivos com a estrutura tabular:
+
+* **Indicador** — nome do KPI conforme listado acima (ex.: “Cobertura del área de leitura”).
+* **Resultado** — valor calculado no período/sessão (percentual, contagem ou tempo médio) com unidades explícitas.
+* **Interpretação executiva** — breve leitura gerencial do resultado, incluindo alertas ou metas de referência.
+
+Esse formato se aplica aos dashboards textuais, à aba `Indicadores_Executivos` do Excel e a quaisquer exportações resumidas.
 
 ---
 
@@ -164,6 +180,7 @@ Abas:
 * `Leituras_por_Antena` — desempenho detalhado por antena.
 * `Fluxo_Contínuo` — entradas/saídas, duração e eventos (modo contínuo).
 * `Indicadores_Executivos` — KPIs de performance geral.
+  * Deve listar explicitamente: `CoverageRate`, `TotalDistinctEPCs`, `Total de Cajas Leydo`, `Tasa promedio de lectura por intento`, `Tiempo promedio de lectura por tote`, `Tasa de fallas de leitura`, `Tasa de lecturas duplicadas`, `Cobertura del área de leitura`, `Capacidad de lectura simultánea`, `Disponibilidad del sistema`, além de `AverageRSSI`, `RSSI_StdDev`, `AntennaBalance`, `TagReadRedundancy`, `TagDwellTimeAvg`, `ConcurrentTagsPeak`, `ReadContinuityRate`, `ThroughputPerMinute`, `SessionDuration`, `ModePerformance` e `NoiseIndicator`.
 * `Metadata` — parâmetros de teste (RF mode, potência, etc.).
 * `Posicoes_Pallet` — cobertura física (modo estruturado).
 
@@ -182,7 +199,10 @@ Abas:
 > “Durante o descarregamento monitorado entre 14:00 e 14:15,
 > o leitor `192.168.68.100` detectou **1.280 EPCs distintos**,
 > tempo médio de permanência **3,4s**, RSSI médio **–53,2 dBm**,
+> `Capacidad de lectura simultánea` **2,4 totes**, `Tasa de fallas de leitura` **1,2%**,
 > e **Antena 3** responsável por **47% das leituras**.”
+
+Os resumos textuais e dashboards devem aproveitar a mesma lista de indicadores executivos, garantindo que `Total de Cajas Leydo`, `Tasa promedio de lectura por intento`, `Tiempo promedio de lectura por tote`, `Tasa de fallas de leitura`, `Tasa de lecturas duplicadas`, `Cobertura del área de leitura`, `Capacidad de lectura simultánea` e `Disponibilidad del sistema` sejam destacados sempre que houver dados disponíveis.
 
 ---
 
