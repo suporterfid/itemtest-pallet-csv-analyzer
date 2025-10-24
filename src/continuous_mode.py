@@ -23,6 +23,7 @@ class ContinuousFlowResult:
     per_epc_summary: pd.DataFrame
     epc_timeline: pd.DataFrame
     epcs_per_minute: pd.Series
+    reads_per_minute: pd.Series
     average_dwell_seconds: float | None
     anomalous_epcs: list[str]
     inconsistency_flags: dict[str, list[str]]
@@ -74,6 +75,7 @@ class ContinuousFlowResult:
             "per_epc_summary": self.per_epc_summary.to_dict(orient="records"),
             "epc_timeline": self.epc_timeline.to_dict(orient="records"),
             "epcs_per_minute": self.epcs_per_minute.to_dict(),
+            "reads_per_minute": self.reads_per_minute.to_dict(),
             "average_dwell_seconds": self.average_dwell_seconds,
             "anomalous_epcs": list(self.anomalous_epcs),
             "inconsistency_flags": {
@@ -146,6 +148,7 @@ def analyze_continuous_flow(
             per_epc_summary=empty_frame,
             epc_timeline=empty_frame,
             epcs_per_minute=empty_series,
+            reads_per_minute=empty_series,
             average_dwell_seconds=None,
             anomalous_epcs=[],
             inconsistency_flags={},
@@ -210,6 +213,7 @@ def analyze_continuous_flow(
             per_epc_summary=empty_frame,
             epc_timeline=empty_frame,
             epcs_per_minute=empty_series,
+            reads_per_minute=empty_series,
             average_dwell_seconds=None,
             anomalous_epcs=[],
             inconsistency_flags={"invalid_data": ["No valid timestamps"]},
@@ -377,6 +381,14 @@ def analyze_continuous_flow(
         .nunique()
     )
     epcs_per_minute.name = "unique_epcs"
+
+    reads_per_minute = (
+        working.set_index("Timestamp")
+        .resample("1min")
+        .size()
+        .astype("int64")
+    )
+    reads_per_minute.name = "total_reads"
 
     average_dwell_seconds = (
         float(per_epc_summary["duration_present"].mean())
@@ -639,6 +651,7 @@ def analyze_continuous_flow(
         per_epc_summary=per_epc_summary,
         epc_timeline=epc_timeline,
         epcs_per_minute=epcs_per_minute,
+        reads_per_minute=reads_per_minute,
         average_dwell_seconds=average_dwell_seconds,
         anomalous_epcs=anomalous_epcs,
         inconsistency_flags=inconsistency_flags,

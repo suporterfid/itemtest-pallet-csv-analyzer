@@ -36,6 +36,7 @@ from .plots import (
     boxplot_rssi_by_antenna,
     plot_rssi_vs_frequency,
     plot_active_epcs_over_time,
+    plot_throughput_per_minute,
     plot_antenna_heatmap,
     plot_pallet_heatmap,
 )
@@ -1141,6 +1142,12 @@ def process_continuous_file(
         str(fig_dir),
         title=f"Active EPCs over time — {csv_path.name}",
     )
+    if result.reads_per_minute is not None and not result.reads_per_minute.empty:
+        plot_throughput_per_minute(
+            result.reads_per_minute,
+            str(fig_dir),
+            title=f"Reads per minute — {csv_path.name}",
+        )
     plot_antenna_heatmap(
         summary,
         str(fig_dir),

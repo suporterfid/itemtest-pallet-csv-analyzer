@@ -167,6 +167,37 @@ def plot_active_epcs_over_time(
     plt.close()
 
 
+def plot_throughput_per_minute(
+    reads_per_minute: pd.Series,
+    outdir: str,
+    title: str = "Reads per minute",
+) -> None:
+    """Plot total reads per minute for continuous-mode throughput analysis."""
+
+    if reads_per_minute is None or reads_per_minute.empty:
+        return
+
+    out = Path(outdir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    series = reads_per_minute.sort_index()
+    times = pd.to_datetime(series.index)
+    if isinstance(times, pd.DatetimeIndex) and times.tz is not None:
+        times = times.tz_convert(None)
+
+    plt.figure()
+    plt.plot(times.to_pydatetime(), series.astype(float), marker="o")
+    plt.title(title)
+    plt.xlabel("Time (min)")
+    plt.ylabel("Reads per minute")
+    plt.grid(axis="y", alpha=0.3)
+    plt.gcf().autofmt_xdate()
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    plt.tight_layout()
+    plt.savefig(out / "throughput_per_minute.png")
+    plt.close()
+
+
 def plot_antenna_heatmap(
     per_epc_summary: pd.DataFrame,
     outdir: str,

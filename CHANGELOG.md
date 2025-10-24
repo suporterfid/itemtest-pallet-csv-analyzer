@@ -13,6 +13,9 @@
 - Added an RSSI vs Frequency scatter plot that is generated for structured and
   continuous analyses, filtering invalid readings to highlight RF channel
   anomalies alongside existing chart artifacts.
+- Added a continuous-mode throughput timeline capturing total reads per minute
+  and persisting the `throughput_per_minute.png` chart alongside existing
+  figures.
 - Introduced a `--summary` CLI flag that aggregates per-file KPIs into an
   `executive_summary.xlsx` workbook for quick executive reviews of batch
   processing runs.
