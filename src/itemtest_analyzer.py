@@ -28,6 +28,7 @@ from .metrics import (
     summarize_by_antenna,
     compile_structured_kpis,
     calculate_mode_performance,
+    compile_logistics_kpis,
 )
 from .plots import (
     plot_reads_by_epc,
@@ -264,6 +265,14 @@ SUMMARY_COLUMN_ORDER = [
     "last_read",
     "excel_report",
     "summary_log",
+    "logistics_total_epcs",
+    "logistics_attempt_success_rate_pct",
+    "logistics_failure_rate_pct",
+    "logistics_cycle_time_seconds",
+    "logistics_duplicate_reads_per_tote",
+    "logistics_concurrent_capacity",
+    "logistics_concurrent_capacity_avg",
+    "logistics_reader_uptime_pct",
 ]
 
 
@@ -359,6 +368,30 @@ def _register_structured_summary(
 
     record["mode_reads_per_second"] = _extract_rate("mode_reads_per_second")
     record["mode_epcs_per_minute"] = _extract_rate("mode_epcs_per_minute")
+
+    logistics_info = (structured_metrics or {}).get("logistics_metrics") or {}
+    record["logistics_total_epcs"] = _clean_int(logistics_info.get("total_logistics_epcs"))
+    record["logistics_attempt_success_rate_pct"] = _clean_float(
+        logistics_info.get("attempt_success_rate_pct")
+    )
+    record["logistics_failure_rate_pct"] = _clean_float(
+        logistics_info.get("attempt_failure_rate_pct")
+    )
+    record["logistics_cycle_time_seconds"] = _clean_float(
+        logistics_info.get("tote_cycle_time_seconds")
+    )
+    record["logistics_duplicate_reads_per_tote"] = _clean_float(
+        logistics_info.get("duplicate_reads_per_tote")
+    )
+    record["logistics_concurrent_capacity"] = _clean_int(
+        logistics_info.get("concurrent_capacity")
+    )
+    record["logistics_concurrent_capacity_avg"] = _clean_float(
+        logistics_info.get("concurrent_capacity_avg")
+    )
+    record["logistics_reader_uptime_pct"] = _clean_float(
+        logistics_info.get("reader_uptime_pct")
+    )
 
     summary_records.append(record)
 
@@ -461,6 +494,30 @@ def _register_continuous_summary(
 
     record["mode_reads_per_second"] = _extract_rate("mode_reads_per_second")
     record["mode_epcs_per_minute"] = _extract_rate("mode_epcs_per_minute")
+
+    logistics_info = (continuous_details or {}).get("logistics_metrics") or {}
+    record["logistics_total_epcs"] = _clean_int(logistics_info.get("total_logistics_epcs"))
+    record["logistics_attempt_success_rate_pct"] = _clean_float(
+        logistics_info.get("attempt_success_rate_pct")
+    )
+    record["logistics_failure_rate_pct"] = _clean_float(
+        logistics_info.get("attempt_failure_rate_pct")
+    )
+    record["logistics_cycle_time_seconds"] = _clean_float(
+        logistics_info.get("tote_cycle_time_seconds")
+    )
+    record["logistics_duplicate_reads_per_tote"] = _clean_float(
+        logistics_info.get("duplicate_reads_per_tote")
+    )
+    record["logistics_concurrent_capacity"] = _clean_int(
+        logistics_info.get("concurrent_capacity")
+    )
+    record["logistics_concurrent_capacity_avg"] = _clean_float(
+        logistics_info.get("concurrent_capacity_avg")
+    )
+    record["logistics_reader_uptime_pct"] = _clean_float(
+        logistics_info.get("reader_uptime_pct")
+    )
 
     summary_records.append(record)
 
@@ -741,6 +798,13 @@ def process_file(
         positions_df=positions_df,
     )
 
+    logistics_metrics = compile_logistics_kpis(
+        summary,
+        metadata,
+        positions_df=positions_df,
+    )
+    structured_metrics["logistics_metrics"] = logistics_metrics
+
     mode_performance = calculate_mode_performance(metadata, summary, df)
     if mode_performance.get("mode_index") is not None or mode_performance.get("description"):
         structured_metrics["mode_performance"] = mode_performance
@@ -758,6 +822,7 @@ def process_file(
         positions_df,
         analysis_mode="structured",
         structured_metrics=structured_metrics,
+        logistics_metrics=logistics_metrics,
     )
     LOGGER.info("\n%s", summary_text)
 
@@ -795,6 +860,7 @@ def process_file(
         metadata,
         positions_df=positions_df,
         structured_metrics=structured_metrics,
+        logistics_metrics=logistics_metrics,
     )
     _register_structured_summary(
         summary_records,
@@ -924,6 +990,21 @@ def process_continuous_file(
         }
     )
 
+    logistics_metrics = compile_logistics_kpis(
+        summary,
+        metadata,
+        positions_df=None,
+        continuous_details={
+            "logistics_concurrency_peak": result.logistics_concurrency_peak,
+            "logistics_concurrency_peak_time": result.logistics_concurrency_peak_time,
+            "logistics_concurrency_average": result.logistics_concurrency_average,
+            "logistics_cycle_time_average": result.logistics_cycle_time_average,
+            "logistics_per_tote_summary": result.logistics_per_tote_summary,
+            "logistics_concurrency_timeline": result.logistics_concurrency_timeline,
+        },
+    )
+    continuous_details["logistics_metrics"] = logistics_metrics
+
     mode_performance = calculate_mode_performance(metadata, summary, df)
     if mode_performance.get("mode_index") is not None or mode_performance.get("description"):
         continuous_details["mode_performance"] = mode_performance
@@ -948,6 +1029,7 @@ def process_continuous_file(
         positions_df=None,
         analysis_mode="continuous",
         continuous_details=continuous_details,
+        logistics_metrics=logistics_metrics,
     )
     LOGGER.info("\n%s", summary_text)
 
@@ -1054,6 +1136,7 @@ def process_continuous_file(
         continuous_timeline=timeline_excel,
         continuous_metrics=continuous_details,
         continuous_epcs_per_minute=result.epcs_per_minute,
+        logistics_metrics=logistics_metrics,
     )
     LOGGER.info("Continuous Excel report saved to: %s", excel_out)
     _register_continuous_summary(
