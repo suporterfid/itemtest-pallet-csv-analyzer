@@ -347,28 +347,64 @@ class TestReportWorkbookStructure(unittest.TestCase):
             structured_sheet = pd.read_excel(out_path, sheet_name="Structured_KPIs", header=None)
             positions_sheet = pd.read_excel(out_path, sheet_name="Posicoes_Pallet", header=None)
 
-        exec_values = exec_df.set_index("Indicator")["Value"].to_dict()
+        self.assertEqual(
+            list(exec_df.columns),
+            ["Indicador", "Resultado", "Interpretação executiva"],
+        )
 
-        self.assertEqual(exec_values.get("Coverage rate"), "95.00% (95/100)")
-        self.assertEqual(exec_values.get("Tag read redundancy"), "2.40×")
-        self.assertEqual(exec_values.get("Antenna balance (σ)"), "3.20%")
-        self.assertEqual(exec_values.get("RSSI stability index (σ)"), "1.25 dBm")
-        self.assertAlmostEqual(
-            float(exec_values.get("Global RSSI mean (dBm)")), -47.3, places=2
+        exec_values = exec_df.set_index("Indicador")
+
+        self.assertEqual(
+            exec_values.loc["CoverageRate", "Resultado"], "95.00% (95/100)"
+        )
+        self.assertIn(
+            "Cobertura de EPCs esperados",
+            exec_values.loc["CoverageRate", "Interpretação executiva"],
+        )
+        self.assertEqual(exec_values.loc["TagReadRedundancy", "Resultado"], "2.40×")
+        self.assertIn(
+            "Redundância de leitura",
+            exec_values.loc["TagReadRedundancy", "Interpretação executiva"],
+        )
+        self.assertEqual(exec_values.loc["AntennaBalance", "Resultado"], "3.20%")
+        self.assertIn(
+            "Balanceamento de antenas",
+            exec_values.loc["AntennaBalance", "Interpretação executiva"],
         )
         self.assertAlmostEqual(
-            float(exec_values.get("Global RSSI std (dBm)")), 3.2, places=2
+            float(exec_values.loc["AverageRSSI", "Resultado"].split()[0]),
+            -47.3,
+            places=2,
+        )
+        self.assertIn(
+            "Sinal médio",
+            exec_values.loc["AverageRSSI", "Interpretação executiva"],
+        )
+        self.assertAlmostEqual(
+            float(exec_values.loc["RSSI_StdDev", "Resultado"].split()[0]),
+            3.2,
+            places=2,
+        )
+        self.assertIn(
+            "Variação global de RSSI",
+            exec_values.loc["RSSI_StdDev", "Interpretação executiva"],
         )
         self.assertEqual(
-            exec_values.get("RSSI noise indicator"),
+            exec_values.loc["NoiseIndicator", "Resultado"],
             "Estabilidade de RSSI dentro do esperado (σ=3.20 dBm; 6.5 leituras/EPC)",
         )
-        self.assertAlmostEqual(
-            float(exec_values.get("Reads per EPC (noise check)")), 6.5, places=2
+        self.assertIn(
+            "Leituras/EPC",
+            exec_values.loc["NoiseIndicator", "Interpretação executiva"],
         )
+
         self.assertEqual(
-            exec_values.get("Top performer antenna"),
-            "3 (57.8% of reads), 120 reads",
+            exec_values.loc["Total de Cajas Leydo", "Resultado"],
+            str(logistics_metrics["total_logistics_epcs"]),
+        )
+        self.assertIn(
+            "totes",
+            exec_values.loc["Total de Cajas Leydo", "Interpretação executiva"],
         )
 
         structured_values = structured_sheet.astype(str).fillna("")
@@ -383,11 +419,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
         positions_values = positions_sheet.astype(str).fillna("")
         self.assertIn("Participation (%)", positions_values.values)
 
-        self.assertIn("Total de Cajas Leydo", exec_values)
-        self.assertEqual(
-            int(exec_values["Total de Cajas Leydo"]),
-            logistics_metrics["total_logistics_epcs"],
-        )
+        self.assertIn("Total de Cajas Leydo", exec_values.index)
 
     def test_executive_sheet_includes_continuous_metrics(self) -> None:
         summary = pd.DataFrame(
@@ -449,50 +481,54 @@ class TestReportWorkbookStructure(unittest.TestCase):
             exec_df = pd.read_excel(out_path, sheet_name="Indicadores_Executivos")
             flow_sheet = pd.read_excel(out_path, sheet_name="Fluxo_Contínuo", header=None)
 
-        exec_values = exec_df.set_index("Indicator")["Value"]
+        exec_values = exec_df.set_index("Indicador")
 
-        self.assertAlmostEqual(float(exec_values["Average dwell time (s)"]), 12.34, places=2)
-        self.assertAlmostEqual(float(exec_values["Maximum dwell time (s)"]), 18.9, places=1)
-        self.assertAlmostEqual(
-            float(exec_values["Throughput (distinct EPCs/min)"]), 45.6, places=2
-        )
-        self.assertAlmostEqual(
-            float(exec_values["Session throughput (reads/min)"]), 72.5, places=1
-        )
-        self.assertAlmostEqual(
-            float(exec_values["Read continuity rate (%)"]), 88.9, places=1
-        )
-        self.assertAlmostEqual(float(exec_values["Average active EPCs/min"]), 42.1, places=1)
-        self.assertAlmostEqual(
-            float(exec_values["Congestion index (reads/s)"]), 0.42, places=2
-        )
-        self.assertAlmostEqual(
-            float(exec_values["Total inactive time (s)"]), 55.0, places=1
-        )
-        self.assertAlmostEqual(
-            float(exec_values["Longest inactive period (s)"]), 20.0, places=1
-        )
-        self.assertAlmostEqual(
-            float(exec_values["Global RSSI mean (dBm)"]), -49.8, places=1
-        )
-        self.assertAlmostEqual(
-            float(exec_values["Global RSSI std (dBm)"]), 1.25, places=2
+        self.assertEqual(exec_values.loc["TagDwellTimeAvg", "Resultado"], "12.34 s")
+        self.assertIn(
+            "Permanência média",
+            exec_values.loc["TagDwellTimeAvg", "Interpretação executiva"],
         )
         self.assertEqual(
-            str(exec_values["RSSI noise indicator"]),
+            exec_values.loc["ThroughputPerMinute", "Resultado"], "45.60 EPCs/min"
+        )
+        self.assertIn(
+            "Throughput",
+            exec_values.loc["ThroughputPerMinute", "Interpretação executiva"],
+        )
+        self.assertEqual(exec_values.loc["ReadContinuityRate", "Resultado"], "88.90%")
+        self.assertIn(
+            "Taxa de continuidade",
+            exec_values.loc["ReadContinuityRate", "Interpretação executiva"],
+        )
+        self.assertEqual(exec_values.loc["SessionDuration", "Resultado"], "05:00")
+        self.assertIn(
+            "300.00 s",
+            exec_values.loc["SessionDuration", "Interpretação executiva"],
+        )
+        self.assertEqual(
+            exec_values.loc["ConcurrentTagsPeak", "Resultado"], "7 @ 2025-01-02 08:15"
+        )
+        self.assertIn(
+            "Pico de 7 EPCs",
+            exec_values.loc["ConcurrentTagsPeak", "Interpretação executiva"],
+        )
+        self.assertAlmostEqual(
+            float(exec_values.loc["AverageRSSI", "Resultado"].split()[0]),
+            continuous_metrics["global_rssi_avg"],
+            places=2,
+        )
+        self.assertAlmostEqual(
+            float(exec_values.loc["RSSI_StdDev", "Resultado"].split()[0]),
+            continuous_metrics["global_rssi_std"],
+            places=2,
+        )
+        self.assertEqual(
+            exec_values.loc["NoiseIndicator", "Resultado"],
             "Variação elevada sem ganho de EPCs (σ=1.25 dBm; 15.0 leituras/EPC)",
         )
-        self.assertAlmostEqual(
-            float(exec_values["Reads per EPC (noise check)"]), 15.0, places=2
-        )
-        self.assertEqual(
-            str(exec_values["Peak active EPCs/min"]), "60 at 2025-01-02 08:17:00"
-        )
-        self.assertEqual(
-            str(exec_values["Peak concurrent EPCs"]), "7 at 2025-01-02 08:15:00"
-        )
-        self.assertEqual(
-            int(float(exec_values["Inactive periods (>5× window)"])), 4
+        self.assertIn(
+            "Leituras/EPC",
+            exec_values.loc["NoiseIndicator", "Interpretação executiva"],
         )
 
         first_column = flow_sheet.iloc[:, 0].astype(str).tolist()
@@ -500,7 +536,6 @@ class TestReportWorkbookStructure(unittest.TestCase):
         self.assertIn("Session throughput (reads/min)", first_column)
         self.assertIn("Inactive periods (>5× window)", first_column)
         self.assertTrue(any("start_time" in str(value) for value in first_column))
-        self.assertEqual(str(exec_values["Dominant antenna"]), "4")
         self.assertIn("RSSI noise indicator", first_column)
         self.assertIn("Reads per EPC (noise check)", first_column)
 
