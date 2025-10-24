@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from src.continuous_mode import analyze_continuous_flow
+from src.metrics import calculate_mode_performance
 
 
 @pytest.fixture
@@ -81,3 +82,56 @@ def test_analyze_continuous_flow_sparse_reads() -> None:
     assert pytest.approx(result.session_throughput or 0.0, rel=1e-6) == pytest.approx(7.5, rel=1e-6)
     assert pytest.approx(result.global_rssi_avg or 0.0, rel=1e-6) == pytest.approx(-40.5, rel=1e-6)
     assert pytest.approx(result.global_rssi_std or 0.0, rel=1e-6) == pytest.approx(0.5, rel=1e-6)
+
+
+def test_calculate_mode_performance_continuous(sample_continuous_dataframe: pd.DataFrame) -> None:
+    """Mode performance helper should compute rates for continuous-mode reads."""
+
+    metadata = {"ModeIndex": "7"}
+    result = analyze_continuous_flow(sample_continuous_dataframe, window_seconds=2)
+    indicator = calculate_mode_performance(
+        metadata,
+        result.per_epc_summary,
+        sample_continuous_dataframe,
+    )
+
+    assert indicator["mode_index"] == 7
+    assert indicator["description"] and "ModeIndex 7" in indicator["description"]
+
+    duration_seconds = (
+        pd.to_datetime(sample_continuous_dataframe["Timestamp"]).max()
+        - pd.to_datetime(sample_continuous_dataframe["Timestamp"]).min()
+    ).total_seconds()
+    expected_reads_per_second = sample_continuous_dataframe.shape[0] / duration_seconds
+    expected_epcs_per_minute = (
+        sample_continuous_dataframe["EPC"].nunique() / (duration_seconds / 60.0)
+    )
+
+    assert pytest.approx(indicator["reads_per_second"], rel=1e-6) == pytest.approx(
+        expected_reads_per_second, rel=1e-6
+    )
+    assert pytest.approx(indicator["reads_per_minute"], rel=1e-6) == pytest.approx(
+        expected_reads_per_second * 60.0, rel=1e-6
+    )
+    assert pytest.approx(indicator["epcs_per_minute"], rel=1e-6) == pytest.approx(
+        expected_epcs_per_minute, rel=1e-6
+    )
+
+
+def test_calculate_mode_performance_continuous_without_metadata(
+    sample_continuous_dataframe: pd.DataFrame,
+) -> None:
+    """When ModeIndex is missing the helper should return empty indicators."""
+
+    result = analyze_continuous_flow(sample_continuous_dataframe, window_seconds=2)
+    indicator = calculate_mode_performance(
+        {},
+        result.per_epc_summary,
+        sample_continuous_dataframe,
+    )
+
+    assert indicator["mode_index"] is None
+    assert indicator["reads_per_second"] is None
+    assert indicator["reads_per_minute"] is None
+    assert indicator["epcs_per_minute"] is None
+    assert indicator["description"] is None

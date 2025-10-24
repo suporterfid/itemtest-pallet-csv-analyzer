@@ -143,6 +143,45 @@ def compose_summary_text(
     elif last_seen:
         general_lines.append(f"- Last read recorded at {last_seen}")
 
+    def _format_mode_line(source: dict | None) -> str | None:
+        if not isinstance(source, dict):
+            return None
+        description = source.get("mode_performance_text")
+        if description:
+            return str(description)
+        indicator = source.get("mode_performance")
+        if isinstance(indicator, dict):
+            description = indicator.get("description")
+            if description:
+                return str(description)
+            label_parts: list[str] = []
+            mode_index = indicator.get("mode_index")
+            if mode_index is not None and not (isinstance(mode_index, float) and pd.isna(mode_index)):
+                label_parts.append(f"ModeIndex {mode_index}")
+            rates: list[str] = []
+            reads_per_second = indicator.get("reads_per_second")
+            if reads_per_second is not None and not pd.isna(reads_per_second):
+                rates.append(f"{float(reads_per_second):.2f} leituras/s")
+            reads_per_minute = indicator.get("reads_per_minute")
+            if reads_per_minute is not None and not pd.isna(reads_per_minute):
+                rates.append(f"{float(reads_per_minute):.2f} leituras/min")
+            epcs_per_minute = indicator.get("epcs_per_minute")
+            if epcs_per_minute is not None and not pd.isna(epcs_per_minute):
+                rates.append(f"{float(epcs_per_minute):.2f} EPCs/min")
+            if rates:
+                prefix = label_parts[0] if label_parts else "Indicador de modo"
+                return f"{prefix} — {', '.join(rates)}"
+            if label_parts:
+                return label_parts[0]
+        return None
+
+    if analysis_mode == "continuous":
+        mode_line = _format_mode_line(continuous_details)
+    else:
+        mode_line = _format_mode_line(structured_info)
+    if mode_line:
+        general_lines.append(f"- {mode_line}")
+
     structured_lines: list[str] = []
     if analysis_mode != "continuous" and structured_info:
         coverage = structured_info.get("coverage_rate")
