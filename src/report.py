@@ -16,6 +16,7 @@ SHEET_EXECUTIVE = "Indicadores_Executivos"
 SHEET_METADATA = "Metadata"
 SHEET_POSICOES = "Posicoes_Pallet"
 SHEET_STRUCTURED = "Structured_KPIs"
+SHEET_LOGISTICS = "Logistica_KPIs"
 
 
 def _sanitize_datetime_value(value: object) -> object:
@@ -67,6 +68,7 @@ def write_excel(
     continuous_timeline: pd.DataFrame | None = None,
     continuous_metrics: dict | None = None,
     continuous_epcs_per_minute: pd.DataFrame | pd.Series | None = None,
+    logistics_metrics: dict | None = None,
 ):
     """Persist summary artefacts to an Excel workbook.
 
@@ -93,6 +95,9 @@ def write_excel(
     continuous_epcs_per_minute:
         Optional Series/DataFrame with aggregated counts of unique EPCs per
         minute produced by the continuous flow analysis.
+    logistics_metrics:
+        Optional dictionary containing logistics KPIs and supporting tables
+        computed by :func:`metrics.compile_logistics_kpis`.
     """
 
     out = Path(out_path)
@@ -110,6 +115,7 @@ def write_excel(
 
     metrics_info = continuous_metrics or {}
     structured_info = structured_metrics or {}
+    logistics_info = logistics_metrics or {}
     timeline_df = None
     if continuous_timeline is not None:
         if isinstance(continuous_timeline, pd.DataFrame):
@@ -237,6 +243,17 @@ def write_excel(
             return
         formatted = formatter(value) if formatter else value
         executive_rows.append({"Indicator": label, "Value": formatted})
+
+    def _format_seconds(value: object) -> str:
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if seconds >= 300:
+            minutes = int(seconds // 60)
+            remainder = int(round(seconds % 60))
+            return f"{minutes:02d}:{remainder:02d}"
+        return f"{seconds:.2f}"
 
     def _first_available(key: str) -> object:
         for source in (metrics_info, structured_info):
@@ -463,6 +480,80 @@ def write_excel(
         noise_reads_exec,
         lambda value: round(float(value), 2),
     )
+
+    # Logistics KPIs
+    _append_executive(
+        "Total de Cajas Leydo",
+        logistics_info.get("total_logistics_epcs"),
+        lambda value: int(value),
+    )
+    _append_executive(
+        "AttemptSuccessRate (%)",
+        logistics_info.get("attempt_success_rate_pct"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Tasa de fallas de leitura (%)",
+        logistics_info.get("attempt_failure_rate_pct"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Tiempo promedio de lectura por tote (s)",
+        logistics_info.get("tote_cycle_time_seconds"),
+        _format_seconds,
+    )
+    _append_executive(
+        "Tasa de lecturas duplicadas (×)",
+        logistics_info.get("duplicate_reads_per_tote"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Cobertura del área de leitura (%)",
+        logistics_info.get("coverage_pct"),
+        lambda value: round(float(value), 2),
+    )
+
+    concurrent_capacity_value = logistics_info.get("concurrent_capacity")
+    if concurrent_capacity_value is not None and not pd.isna(concurrent_capacity_value):
+        peak_time_value = logistics_info.get("concurrent_capacity_time")
+        peak_label = None
+        if peak_time_value is not None:
+            peak_label = _format_timestamp(peak_time_value)
+            if peak_label == "N/A":
+                peak_label = None
+        if peak_label:
+            executive_rows.append(
+                {
+                    "Indicator": "Capacidad de lectura simultánea",
+                    "Value": f"{int(concurrent_capacity_value)} @ {peak_label}",
+                }
+            )
+        else:
+            _append_executive(
+                "Capacidad de lectura simultánea",
+                concurrent_capacity_value,
+                lambda value: int(value),
+            )
+
+    _append_executive(
+        "Capacidad simultánea promedio",
+        logistics_info.get("concurrent_capacity_avg"),
+        lambda value: round(float(value), 2),
+    )
+    _append_executive(
+        "Disponibilidad del sistema (%)",
+        logistics_info.get("reader_uptime_pct"),
+        lambda value: round(float(value), 2),
+    )
+    uptime_seconds_value = logistics_info.get("reader_uptime_seconds")
+    if uptime_seconds_value is not None and not pd.isna(uptime_seconds_value):
+        uptime_detail = f"{float(uptime_seconds_value):.1f} s"
+        scheduled_value = logistics_info.get("scheduled_session_seconds")
+        if scheduled_value is not None and not pd.isna(scheduled_value):
+            uptime_detail += f" de {float(scheduled_value):.1f} s"
+        executive_rows.append(
+            {"Indicator": "Tempo de uptime reportado", "Value": uptime_detail}
+        )
 
     coverage_rate = structured_info.get("coverage_rate")
     if coverage_rate is not None and not pd.isna(coverage_rate):
@@ -930,16 +1021,106 @@ def write_excel(
                     startrow=structured_row,
                 )
                 structured_row += len(missing_positions_df) + 2
-            if structured_row == 0:
-                placeholder_df = pd.DataFrame(
-                    {"Message": ["No structured metrics available."]}
+        if logistics_info:
+            sheet_logistics = SHEET_LOGISTICS
+            summary_entries: list[dict[str, object]] = []
+            for key, label in [
+                ("total_logistics_epcs", "Total de Cajas Leydo"),
+                ("attempt_success_rate_pct", "AttemptSuccessRate (%)"),
+                ("attempt_failure_rate_pct", "Tasa de fallas de leitura (%)"),
+                ("tote_cycle_time_seconds", "Tiempo promedio de lectura por tote (s)"),
+                ("duplicate_reads_per_tote", "Tasa de lecturas duplicadas (×)"),
+                ("coverage_pct", "Cobertura del área de leitura (%)"),
+                ("concurrent_capacity", "Capacidad de lectura simultánea"),
+                ("concurrent_capacity_avg", "Capacidad simultánea promedio"),
+                ("reader_uptime_pct", "Disponibilidad del sistema (%)"),
+            ]:
+                value = logistics_info.get(key)
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    continue
+                summary_entries.append({"Indicator": label, "Value": value})
+            if summary_entries:
+                summary_df = pd.DataFrame(summary_entries)
+            else:
+                summary_df = pd.DataFrame(
+                    [
+                        {
+                            "Indicator": "Message",
+                            "Value": "No logistics KPIs available.",
+                        }
+                    ]
                 )
+            _safe_to_excel(
+                summary_df,
+                writer=writer,
+                sheet_name=sheet_logistics,
+                index=False,
+            )
+            logistics_row = len(summary_df) + 2
+
+            coverage_table = logistics_info.get("coverage_table")
+            if isinstance(coverage_table, pd.DataFrame) and not coverage_table.empty:
                 _safe_to_excel(
-                    placeholder_df,
+                    coverage_table,
                     writer=writer,
-                    sheet_name=sheet_structured,
+                    sheet_name=sheet_logistics,
                     index=False,
+                    startrow=logistics_row,
                 )
+                logistics_row += len(coverage_table) + 2
+
+            attempts_table = logistics_info.get("attempts_table")
+            if isinstance(attempts_table, pd.DataFrame) and not attempts_table.empty:
+                attempts_copy = attempts_table.copy()
+                for column in ("start_time", "end_time"):
+                    if column in attempts_copy.columns:
+                        attempts_copy[column] = pd.to_datetime(
+                            attempts_copy[column], errors="coerce"
+                        )
+                _safe_to_excel(
+                    attempts_copy,
+                    writer=writer,
+                    sheet_name=sheet_logistics,
+                    index=False,
+                    startrow=logistics_row,
+                )
+                logistics_row += len(attempts_copy) + 2
+
+            per_tote_summary = logistics_info.get("logistics_per_tote_summary")
+            if isinstance(per_tote_summary, pd.DataFrame) and not per_tote_summary.empty:
+                _safe_to_excel(
+                    per_tote_summary,
+                    writer=writer,
+                    sheet_name=sheet_logistics,
+                    index=False,
+                    startrow=logistics_row,
+                )
+                logistics_row += len(per_tote_summary) + 2
+
+            logistics_timeline = logistics_info.get("logistics_concurrency_timeline")
+            if isinstance(logistics_timeline, pd.DataFrame) and not logistics_timeline.empty:
+                timeline_copy = logistics_timeline.copy()
+                if "timestamp" in timeline_copy.columns:
+                    timeline_copy["timestamp"] = pd.to_datetime(
+                        timeline_copy["timestamp"], errors="coerce"
+                    )
+                _safe_to_excel(
+                    timeline_copy,
+                    writer=writer,
+                    sheet_name=sheet_logistics,
+                    index=False,
+                    startrow=logistics_row,
+                )
+        if structured_info and structured_row == 0:
+            placeholder_df = pd.DataFrame(
+                {"Message": ["No structured metrics available."]}
+            )
+            _safe_to_excel(
+                placeholder_df,
+                writer=writer,
+                sheet_name=SHEET_STRUCTURED,
+                index=False,
+            )
 
         metrics_rows: list[dict[str, object]] = []
         mode_indicator_continuous = _format_mode_indicator(metrics_info)

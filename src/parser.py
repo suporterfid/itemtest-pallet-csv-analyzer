@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re, io
+from datetime import timedelta
 from pathlib import Path
 import pandas as pd
 
@@ -19,6 +20,69 @@ HOSTNAME_ALIASES = (
     "Reader IP",
     "Reader",
 )
+
+LOGISTICS_DURATION_ALIASES = {
+    "ReaderUptimeSeconds": {
+        "ReaderUptimeSeconds",
+        "ReaderUptime",
+        "Reader Uptime",
+        "Reader Uptime (s)",
+        "ReaderUptime (s)",
+        "UptimeSeconds",
+        "Uptime Seconds",
+    },
+    "ScheduledSessionSeconds": {
+        "ScheduledSessionSeconds",
+        "ScheduledDuration",
+        "Scheduled Duration",
+        "SessionDuration",
+        "Session Duration",
+        "SessionDurationSeconds",
+    },
+}
+
+
+def _parse_seconds_value(value: object) -> float | None:
+    """Return ``value`` as seconds when the metadata encodes a duration."""
+
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    # Remove common unit suffixes ("s", "sec", etc.)
+    text = re.sub(r"(?i)\bsecs?\b", "", text).replace("s", "")
+    text = text.strip()
+    # Support HH:MM:SS and MM:SS formatted strings
+    if ":" in text:
+        try:
+            parts = [float(part) for part in text.split(":")]
+        except ValueError:
+            parts = []
+        if parts:
+            seconds = 0.0
+            for part in parts:
+                seconds = seconds * 60.0 + part
+            return float(seconds)
+    # Support ISO 8601 duration strings via pandas
+    try:
+        parsed = pd.to_timedelta(text)
+        if isinstance(parsed, timedelta):
+            return float(parsed.total_seconds())
+        if hasattr(parsed, "total_seconds"):
+            return float(parsed.total_seconds())
+    except (ValueError, TypeError):
+        pass
+    try:
+        numeric = float(text.replace(",", "."))
+    except ValueError:
+        return None
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
 
 def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
     """Read an Impinj ItemTest CSV export with ``//`` metadata headers.
@@ -112,6 +176,15 @@ def read_itemtest_csv(path: str) -> tuple[pd.DataFrame, dict]:
             metadata["PowersInDbm"] = power_pairs
         else:
             metadata["PowersInDbm"] = parsed_pairs["PowersInDbm"].strip()
+
+    # Capture logistics-related duration metadata (uptime, scheduled session)
+    for canonical_key, aliases in LOGISTICS_DURATION_ALIASES.items():
+        for alias in aliases:
+            if alias in parsed_pairs and parsed_pairs[alias]:
+                seconds = _parse_seconds_value(parsed_pairs[alias])
+                if seconds is not None:
+                    metadata[canonical_key] = seconds
+                    break
 
     # Build a CSV string removing the leading '//' from the header line
     csv_lines = raw_lines[header_idx:]

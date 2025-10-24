@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Collection
+from typing import Collection, Iterable
 
 import numpy as np
 import pandas as pd
 
 from .parser import suffix3
+
+LOGISTICS_PREFIX = "331A"
 
 
 def antenna_mode(series: pd.Series):
@@ -777,6 +779,290 @@ def calculate_read_distribution_by_face(positions_df: pd.DataFrame | None) -> pd
     return grouped.sort_values("total_reads", ascending=False).reset_index(drop=True)
 
 
+def filter_logistics_epcs(
+    summary_df: pd.DataFrame,
+    *,
+    prefix: str = LOGISTICS_PREFIX,
+) -> pd.DataFrame:
+    """Return a copy of ``summary_df`` filtered to logistics EPCs."""
+
+    if summary_df is None or summary_df.empty or "EPC" not in summary_df.columns:
+        return pd.DataFrame(columns=getattr(summary_df, "columns", []))
+    working = summary_df.copy()
+    mask = working["EPC"].astype(str).str.upper().str.startswith(prefix.upper())
+    return working.loc[mask].reset_index(drop=True)
+
+
+def calculate_logistics_duplicate_rate(logistics_df: pd.DataFrame) -> float | None:
+    """Return the average duplicate read count per logistics EPC."""
+
+    if logistics_df is None or logistics_df.empty:
+        return None
+    if "total_reads" not in logistics_df.columns:
+        return None
+    reads = pd.to_numeric(logistics_df["total_reads"], errors="coerce").dropna()
+    if reads.empty:
+        return None
+    duplicates = reads - 1.0
+    duplicates = duplicates.clip(lower=0.0)
+    return float(duplicates.mean())
+
+
+def calculate_logistics_cycle_time(logistics_df: pd.DataFrame) -> float | None:
+    """Return the average dwell time in seconds per logistics EPC."""
+
+    if logistics_df is None or logistics_df.empty:
+        return None
+    if "duration_present" not in logistics_df.columns:
+        return None
+    durations = pd.to_numeric(logistics_df["duration_present"], errors="coerce").dropna()
+    if durations.empty:
+        return None
+    return float(durations.mean())
+
+
+def summarize_logistics_attempts(
+    logistics_df: pd.DataFrame,
+    *,
+    attempt_windows: Iterable[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    """Return attempt-level success indicators for logistics EPCs."""
+
+    attempts: list[dict[str, object]] = []
+    logistics_df = logistics_df.copy() if logistics_df is not None else pd.DataFrame()
+    logistics_df["first_time"] = pd.to_datetime(
+        logistics_df.get("first_time"), errors="coerce"
+    )
+    logistics_df["last_time"] = pd.to_datetime(
+        logistics_df.get("last_time"), errors="coerce"
+    )
+
+    def _count_attempt(
+        start: pd.Timestamp | None,
+        end: pd.Timestamp | None,
+        label: str,
+    ) -> dict[str, object]:
+        if start is not None and pd.isna(start):
+            start = None
+        if end is not None and pd.isna(end):
+            end = None
+        mask = pd.Series(True, index=logistics_df.index)
+        if start is not None:
+            mask &= logistics_df["last_time"].ge(start) | logistics_df["last_time"].isna()
+        if end is not None:
+            mask &= logistics_df["first_time"].le(end) | logistics_df["first_time"].isna()
+        subset = logistics_df.loc[mask]
+        tote_count = int(subset.shape[0]) if not subset.empty else 0
+        duplicates = calculate_logistics_duplicate_rate(subset)
+        return {
+            "attempt_id": label,
+            "start_time": start,
+            "end_time": end,
+            "logistics_epcs": tote_count,
+            "successful": bool(tote_count > 0),
+            "duplicate_reads_avg": duplicates,
+        }
+
+    if attempt_windows:
+        for idx, window in enumerate(attempt_windows, start=1):
+            if not isinstance(window, dict):
+                continue
+            start_raw = window.get("start") or window.get("start_time")
+            end_raw = window.get("end") or window.get("end_time")
+            start = pd.to_datetime(start_raw, errors="coerce") if start_raw is not None else None
+            end = pd.to_datetime(end_raw, errors="coerce") if end_raw is not None else None
+            label = str(window.get("label") or f"Attempt {idx}")
+            attempts.append(_count_attempt(start, end, label))
+    else:
+        if logistics_df.empty:
+            start = end = None
+        else:
+            start = logistics_df["first_time"].min()
+            end = logistics_df["last_time"].max()
+        attempts.append(_count_attempt(start, end, "Attempt 1"))
+
+    attempts_df = pd.DataFrame(attempts)
+    total_attempts = int(attempts_df.shape[0]) if not attempts_df.empty else 0
+    successful_attempts = int(attempts_df["successful"].sum()) if not attempts_df.empty else 0
+    success_rate = (
+        float(successful_attempts) / float(total_attempts) * 100.0
+        if total_attempts
+        else None
+    )
+    return {
+        "attempts": attempts_df,
+        "total_attempts": total_attempts,
+        "successful_attempts": successful_attempts,
+        "success_rate_pct": success_rate,
+    }
+
+
+def calculate_logistics_spatial_coverage(
+    positions_df: pd.DataFrame | None,
+    *,
+    prefix: str = LOGISTICS_PREFIX,
+) -> tuple[float | None, pd.DataFrame]:
+    """Return coverage percentage and mask for logistics zones."""
+
+    if positions_df is None or positions_df.empty:
+        return None, pd.DataFrame()
+    working = positions_df.copy()
+    for column in ("ExpectedToken", "ExpectedEPC"):
+        if column not in working.columns:
+            working[column] = ""
+    mask = (
+        working["ExpectedToken"].astype(str).str.upper().str.startswith(prefix.upper())
+        | working["ExpectedEPC"].astype(str).str.upper().str.startswith(prefix.upper())
+    )
+    logistics_positions = working.loc[mask]
+    if logistics_positions.empty:
+        return None, pd.DataFrame(columns=working.columns)
+    logistics_positions = logistics_positions.reset_index(drop=True)
+    total_positions = int(logistics_positions.shape[0])
+    read_positions = int(
+        pd.to_numeric(logistics_positions.get("Read"), errors="coerce").fillna(0).astype(int).sum()
+    )
+    coverage_pct = None
+    if total_positions > 0:
+        coverage_pct = read_positions / total_positions * 100.0
+    return coverage_pct, logistics_positions
+
+
+def calculate_reader_uptime_from_metadata(metadata: dict[str, object] | None) -> dict[str, object]:
+    """Return uptime indicators derived from ItemTest metadata."""
+
+    uptime_seconds = None
+    scheduled_seconds = None
+    if isinstance(metadata, dict):
+        raw_uptime = metadata.get("ReaderUptimeSeconds")
+        raw_scheduled = metadata.get("ScheduledSessionSeconds") or metadata.get(
+            "SessionDurationSeconds"
+        )
+        if raw_uptime is not None:
+            try:
+                uptime_seconds = float(raw_uptime)
+            except (TypeError, ValueError):
+                uptime_seconds = None
+            if uptime_seconds is not None and pd.isna(uptime_seconds):
+                uptime_seconds = None
+        if raw_scheduled is not None:
+            try:
+                scheduled_seconds = float(raw_scheduled)
+            except (TypeError, ValueError):
+                scheduled_seconds = None
+            if scheduled_seconds is not None and pd.isna(scheduled_seconds):
+                scheduled_seconds = None
+
+    uptime_pct = None
+    if (
+        uptime_seconds is not None
+        and scheduled_seconds is not None
+        and scheduled_seconds > 0
+    ):
+        uptime_pct = uptime_seconds / scheduled_seconds * 100.0
+
+    return {
+        "uptime_seconds": uptime_seconds,
+        "scheduled_seconds": scheduled_seconds,
+        "uptime_pct": uptime_pct,
+    }
+
+
+def compile_logistics_kpis(
+    summary_df: pd.DataFrame,
+    metadata: dict[str, object] | None,
+    *,
+    positions_df: pd.DataFrame | None = None,
+    continuous_details: dict[str, object] | None = None,
+    attempt_windows: Iterable[dict[str, object]] | None = None,
+    prefix: str = LOGISTICS_PREFIX,
+) -> dict[str, object]:
+    """Aggregate logistics KPIs combining structured and continuous artefacts."""
+
+    logistics_df = filter_logistics_epcs(summary_df, prefix=prefix)
+    total_totes = int(logistics_df.shape[0]) if not logistics_df.empty else 0
+
+    duplicate_rate = calculate_logistics_duplicate_rate(logistics_df)
+    cycle_time = calculate_logistics_cycle_time(logistics_df)
+
+    attempts_info = summarize_logistics_attempts(
+        logistics_df, attempt_windows=attempt_windows
+    )
+    success_rate = attempts_info.get("success_rate_pct")
+    failure_rate = None
+    if success_rate is not None:
+        failure_rate = max(0.0, 100.0 - float(success_rate))
+
+    coverage_pct, coverage_mask = calculate_logistics_spatial_coverage(
+        positions_df, prefix=prefix
+    )
+
+    logistics_concurrency_peak = None
+    logistics_concurrency_average = None
+    logistics_concurrency_peak_time = None
+    logistics_cycle_time_avg = cycle_time
+    per_tote_summary: pd.DataFrame | None = None
+    concurrency_timeline: pd.DataFrame | None = None
+
+    if continuous_details:
+        peak_value = continuous_details.get("logistics_concurrency_peak")
+        if peak_value is not None and not pd.isna(peak_value):
+            try:
+                logistics_concurrency_peak = int(peak_value)
+            except (TypeError, ValueError):
+                logistics_concurrency_peak = None
+        avg_value = continuous_details.get("logistics_concurrency_average")
+        if avg_value is not None and not pd.isna(avg_value):
+            logistics_concurrency_average = float(avg_value)
+        peak_time_value = continuous_details.get("logistics_concurrency_peak_time")
+        if peak_time_value is not None:
+            try:
+                peak_time_candidate = pd.to_datetime(peak_time_value)
+                if not pd.isna(peak_time_candidate):
+                    logistics_concurrency_peak_time = peak_time_candidate
+            except Exception:  # pragma: no cover - defensive conversion
+                logistics_concurrency_peak_time = None
+        cycle_value = continuous_details.get("logistics_cycle_time_average")
+        if cycle_value is not None and not pd.isna(cycle_value):
+            logistics_cycle_time_avg = float(cycle_value)
+        per_tote_candidate = continuous_details.get("logistics_per_tote_summary")
+        if isinstance(per_tote_candidate, pd.DataFrame):
+            per_tote_summary = per_tote_candidate.copy()
+        elif per_tote_candidate is not None:
+            per_tote_summary = pd.DataFrame(per_tote_candidate)
+        timeline_candidate = continuous_details.get("logistics_concurrency_timeline")
+        if isinstance(timeline_candidate, pd.DataFrame):
+            concurrency_timeline = timeline_candidate.copy()
+        elif timeline_candidate is not None:
+            concurrency_timeline = pd.DataFrame(timeline_candidate)
+
+    uptime_info = calculate_reader_uptime_from_metadata(metadata)
+
+    result = {
+        "prefix": prefix,
+        "total_logistics_epcs": total_totes,
+        "duplicate_reads_per_tote": duplicate_rate,
+        "tote_cycle_time_seconds": logistics_cycle_time_avg,
+        "attempt_success_rate_pct": success_rate,
+        "attempt_failure_rate_pct": failure_rate,
+        "attempts_table": attempts_info.get("attempts"),
+        "total_attempts": attempts_info.get("total_attempts"),
+        "successful_attempts": attempts_info.get("successful_attempts"),
+        "coverage_pct": coverage_pct,
+        "coverage_table": coverage_mask,
+        "concurrent_capacity": logistics_concurrency_peak,
+        "concurrent_capacity_avg": logistics_concurrency_average,
+        "concurrent_capacity_time": logistics_concurrency_peak_time,
+        "logistics_per_tote_summary": per_tote_summary,
+        "logistics_concurrency_timeline": concurrency_timeline,
+        "reader_uptime_pct": uptime_info.get("uptime_pct"),
+        "reader_uptime_seconds": uptime_info.get("uptime_seconds"),
+        "scheduled_session_seconds": uptime_info.get("scheduled_seconds"),
+    }
+
+    return result
+
+
 def compile_structured_kpis(
     summary_df: pd.DataFrame,
     raw_df: pd.DataFrame,
@@ -890,4 +1176,11 @@ __all__ = [
     "detect_location_errors",
     "calculate_read_distribution_by_face",
     "compile_structured_kpis",
+    "filter_logistics_epcs",
+    "calculate_logistics_duplicate_rate",
+    "calculate_logistics_cycle_time",
+    "summarize_logistics_attempts",
+    "calculate_logistics_spatial_coverage",
+    "calculate_reader_uptime_from_metadata",
+    "compile_logistics_kpis",
 ]

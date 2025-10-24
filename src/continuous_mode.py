@@ -13,6 +13,8 @@ from .metrics import compile_global_rssi_metrics
 
 LOGGER = logging.getLogger("itemtest.continuous")
 
+LOGISTICS_PREFIX = "331A"
+
 
 @dataclass(slots=True)
 class ContinuousFlowResult:
@@ -47,6 +49,12 @@ class ContinuousFlowResult:
     concurrency_peak: int | None
     concurrency_peak_time: pd.Timestamp | None
     concurrency_average: float | None
+    logistics_per_tote_summary: pd.DataFrame
+    logistics_concurrency_timeline: pd.DataFrame
+    logistics_concurrency_peak: int | None
+    logistics_concurrency_peak_time: pd.Timestamp | None
+    logistics_concurrency_average: float | None
+    logistics_cycle_time_average: float | None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable representation of the analysis result."""
@@ -94,6 +102,12 @@ class ContinuousFlowResult:
             "concurrency_peak": self.concurrency_peak,
             "concurrency_peak_time": _convert_timestamp(self.concurrency_peak_time),
             "concurrency_average": self.concurrency_average,
+            "logistics_per_tote_summary": self.logistics_per_tote_summary.to_dict(orient="records"),
+            "logistics_concurrency_timeline": self.logistics_concurrency_timeline.to_dict(orient="records"),
+            "logistics_concurrency_peak": self.logistics_concurrency_peak,
+            "logistics_concurrency_peak_time": _convert_timestamp(self.logistics_concurrency_peak_time),
+            "logistics_concurrency_average": self.logistics_concurrency_average,
+            "logistics_cycle_time_average": self.logistics_cycle_time_average,
         }
 
 
@@ -158,6 +172,12 @@ def analyze_continuous_flow(
             concurrency_peak=None,
             concurrency_peak_time=None,
             concurrency_average=None,
+            logistics_per_tote_summary=empty_frame,
+            logistics_concurrency_timeline=empty_frame,
+            logistics_concurrency_peak=None,
+            logistics_concurrency_peak_time=None,
+            logistics_concurrency_average=None,
+            logistics_cycle_time_average=None,
         )
 
     required_columns = {"EPC", "Timestamp", "Antenna"}
@@ -216,6 +236,12 @@ def analyze_continuous_flow(
             concurrency_peak=None,
             concurrency_peak_time=None,
             concurrency_average=None,
+            logistics_per_tote_summary=empty_frame,
+            logistics_concurrency_timeline=empty_frame,
+            logistics_concurrency_peak=None,
+            logistics_concurrency_peak_time=None,
+            logistics_concurrency_average=None,
+            logistics_cycle_time_average=None,
         )
 
     working = working.sort_values(["EPC", "Timestamp", "Antenna"]).reset_index(drop=True)
@@ -434,10 +460,18 @@ def analyze_continuous_flow(
     concurrency_peak: int | None = None
     concurrency_peak_time: pd.Timestamp | None = None
     concurrency_average: float | None = None
+    concurrency_weighted_sum: float = 0.0
 
-    if not epc_timeline.empty:
+    def _compute_concurrency(
+        timeline: pd.DataFrame,
+        *,
+        session_end_with_grace: pd.Timestamp | None,
+    ) -> tuple[pd.DataFrame, float | None, int | None, pd.Timestamp | None, float]:
+        if timeline is None or timeline.empty:
+            return pd.DataFrame(), None, None, None, 0.0
+
         events: list[tuple[pd.Timestamp, int]] = []
-        for row in epc_timeline.itertuples(index=False):
+        for row in timeline.itertuples(index=False):
             entry = getattr(row, "entry_time", None)
             exit_ = getattr(row, "exit_time", None)
             entry_ts = pd.to_datetime(entry, errors="coerce") if entry is not None else None
@@ -449,66 +483,84 @@ def analyze_continuous_flow(
             events.append((entry_ts, 1))
             events.append((exit_ts, -1))
 
-        if events:
-            events_df = pd.DataFrame(events, columns=["timestamp", "change"])
-            events_df["timestamp"] = pd.to_datetime(events_df["timestamp"], errors="coerce")
-            events_df = events_df.dropna(subset=["timestamp"])
-            if not events_df.empty:
-                events_df = events_df.sort_values(
-                    ["timestamp", "change"], ascending=[True, True], kind="mergesort"
-                ).reset_index(drop=True)
-                aggregated = events_df.groupby("timestamp", sort=True)["change"].sum()
-                active_counts = aggregated.cumsum()
-                concurrency_timeline = pd.DataFrame(
-                    {
-                        "timestamp": aggregated.index,
-                        "change": aggregated.to_numpy(),
-                        "active_epcs": active_counts.to_numpy(),
-                    }
+        if not events:
+            return pd.DataFrame(), None, None, None, 0.0
+
+        events_df = pd.DataFrame(events, columns=["timestamp", "change"])
+        events_df["timestamp"] = pd.to_datetime(events_df["timestamp"], errors="coerce")
+        events_df = events_df.dropna(subset=["timestamp"])
+        if events_df.empty:
+            return pd.DataFrame(), None, None, None, 0.0
+
+        events_df = events_df.sort_values(
+            ["timestamp", "change"], ascending=[True, True], kind="mergesort"
+        ).reset_index(drop=True)
+        aggregated = events_df.groupby("timestamp", sort=True)["change"].sum()
+        active_counts = aggregated.cumsum()
+        timeline_df = pd.DataFrame(
+            {
+                "timestamp": aggregated.index,
+                "change": aggregated.to_numpy(),
+                "active_epcs": active_counts.to_numpy(),
+            }
+        )
+
+        local_session_end = session_end_with_grace
+        if local_session_end is None and not aggregated.empty:
+            local_session_end = aggregated.index.max()
+
+        durations: list[float] = []
+        timestamps_list = list(timeline_df["timestamp"])
+        for idx, current in enumerate(timestamps_list):
+            if idx + 1 < len(timestamps_list):
+                delta_seconds = (timestamps_list[idx + 1] - current).total_seconds()
+            elif local_session_end is not None:
+                delta_seconds = (local_session_end - current).total_seconds()
+            else:
+                delta_seconds = 0.0
+            durations.append(float(max(delta_seconds, 0.0)))
+        timeline_df["duration_seconds"] = durations
+
+        active_time = 0.0
+        weighted = 0.0
+        for row in timeline_df.itertuples(index=False):
+            active_value = getattr(row, "active_epcs", 0)
+            duration_value = float(getattr(row, "duration_seconds", 0.0) or 0.0)
+            if active_value > 0 and duration_value > 0:
+                active_time += duration_value
+                weighted += active_value * duration_value
+
+        peak = None
+        peak_time = None
+        if not active_counts.empty:
+            peak = int(active_counts.max())
+            try:
+                peak_idx = active_counts.idxmax()
+                peak_time = (
+                    pd.to_datetime(peak_idx)
+                    if peak_idx is not None and not pd.isna(peak_idx)
+                    else None
                 )
+            except (TypeError, ValueError):
+                peak_time = None
 
-                if session_end_with_grace is None and not aggregated.empty:
-                    session_end_with_grace = aggregated.index.max()
+        return timeline_df, active_time if active_time > 0 else 0.0, peak, peak_time, weighted
 
-                durations: list[float] = []
-                timestamps_list = list(concurrency_timeline["timestamp"])
-                for idx, current in enumerate(timestamps_list):
-                    if idx + 1 < len(timestamps_list):
-                        delta_seconds = (
-                            timestamps_list[idx + 1] - current
-                        ).total_seconds()
-                    elif session_end_with_grace is not None:
-                        delta_seconds = (
-                            session_end_with_grace - current
-                        ).total_seconds()
-                    else:
-                        delta_seconds = 0.0
-                    durations.append(float(max(delta_seconds, 0.0)))
-                concurrency_timeline["duration_seconds"] = durations
+    if not epc_timeline.empty:
+        (
+            concurrency_timeline,
+            session_active_seconds,
+            concurrency_peak,
+            concurrency_peak_time,
+            concurrency_weighted_sum,
+        ) = _compute_concurrency(epc_timeline, session_end_with_grace=session_end_with_grace)
 
-                session_active_seconds = 0.0
-                weighted_sum = 0.0
-                for row in concurrency_timeline.itertuples(index=False):
-                    active_value = getattr(row, "active_epcs", 0)
-                    duration_value = float(getattr(row, "duration_seconds", 0.0) or 0.0)
-                    if active_value > 0 and duration_value > 0:
-                        session_active_seconds += duration_value
-                        weighted_sum += active_value * duration_value
-
-                if not active_counts.empty:
-                    concurrency_peak = int(active_counts.max())
-                    try:
-                        peak_time = active_counts.idxmax()
-                        concurrency_peak_time = (
-                            pd.to_datetime(peak_time)
-                            if peak_time is not None and not pd.isna(peak_time)
-                            else None
-                        )
-                    except (TypeError, ValueError):
-                        concurrency_peak_time = None
-
-                    if session_duration_seconds and session_duration_seconds > 0:
-                        concurrency_average = weighted_sum / session_duration_seconds
+    if (
+        session_duration_seconds
+        and session_duration_seconds > 0
+        and concurrency_weighted_sum > 0
+    ):
+        concurrency_average = concurrency_weighted_sum / session_duration_seconds
 
     read_continuity_rate: float | None = None
     if (
@@ -521,6 +573,51 @@ def analyze_continuous_flow(
     congestion_index: float | None = None
     if session_active_seconds and session_active_seconds > 0:
         congestion_index = float(total_reads / session_active_seconds)
+
+    logistics_per_tote_summary = pd.DataFrame()
+    logistics_cycle_time_average: float | None = None
+    logistics_concurrency_timeline = pd.DataFrame()
+    logistics_concurrency_peak: int | None = None
+    logistics_concurrency_peak_time: pd.Timestamp | None = None
+    logistics_concurrency_average: float | None = None
+    logistics_weighted_sum: float = 0.0
+
+    if not per_epc_summary.empty and "EPC" in per_epc_summary.columns:
+        logistics_mask = (
+            per_epc_summary["EPC"].astype(str).str.upper().str.startswith(LOGISTICS_PREFIX)
+        )
+        logistics_per_tote_summary = per_epc_summary.loc[logistics_mask].copy()
+        if not logistics_per_tote_summary.empty and "duration_present" in logistics_per_tote_summary.columns:
+            durations = pd.to_numeric(
+                logistics_per_tote_summary["duration_present"], errors="coerce"
+            ).dropna()
+            if not durations.empty:
+                logistics_cycle_time_average = float(durations.mean())
+
+    logistics_timeline = pd.DataFrame()
+    if not epc_timeline.empty and "EPC" in epc_timeline.columns:
+        logistics_timeline = epc_timeline.loc[
+            epc_timeline["EPC"].astype(str).str.upper().str.startswith(LOGISTICS_PREFIX)
+        ].copy()
+
+    if not logistics_timeline.empty:
+        (
+            logistics_concurrency_timeline,
+            _logistics_active_seconds,
+            logistics_concurrency_peak,
+            logistics_concurrency_peak_time,
+            logistics_weighted_sum,
+        ) = _compute_concurrency(
+            logistics_timeline, session_end_with_grace=session_end_with_grace
+        )
+        if (
+            session_duration_seconds
+            and session_duration_seconds > 0
+            and logistics_weighted_sum > 0
+        ):
+            logistics_concurrency_average = (
+                logistics_weighted_sum / session_duration_seconds
+            )
 
     throughput_per_minute: float | None = None
     session_throughput: float | None = None
@@ -568,6 +665,12 @@ def analyze_continuous_flow(
         concurrency_peak=concurrency_peak,
         concurrency_peak_time=concurrency_peak_time,
         concurrency_average=concurrency_average,
+        logistics_per_tote_summary=logistics_per_tote_summary,
+        logistics_concurrency_timeline=logistics_concurrency_timeline,
+        logistics_concurrency_peak=logistics_concurrency_peak,
+        logistics_concurrency_peak_time=logistics_concurrency_peak_time,
+        logistics_concurrency_average=logistics_concurrency_average,
+        logistics_cycle_time_average=logistics_cycle_time_average,
     )
 
 

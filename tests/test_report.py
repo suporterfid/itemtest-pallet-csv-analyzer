@@ -110,6 +110,58 @@ class TestReportWorkbookStructure(unittest.TestCase):
             "location_error_count": len(location_df),
             "reads_by_face": reads_face_df,
         }
+        logistics_metrics = {
+            "total_logistics_epcs": 10,
+            "attempt_success_rate_pct": 80.0,
+            "attempt_failure_rate_pct": 20.0,
+            "tote_cycle_time_seconds": 42.5,
+            "duplicate_reads_per_tote": 3.2,
+            "coverage_pct": 92.0,
+            "concurrent_capacity": 4,
+            "concurrent_capacity_avg": 2.5,
+            "reader_uptime_pct": 95.0,
+            "reader_uptime_seconds": 3600.0,
+            "scheduled_session_seconds": 3780.0,
+            "attempts_table": pd.DataFrame(
+                [
+                    {
+                        "attempt_id": "Attempt 1",
+                        "start_time": pd.Timestamp("2025-01-01 12:00:00"),
+                        "end_time": pd.Timestamp("2025-01-01 12:05:00"),
+                        "logistics_epcs": 10,
+                        "successful": True,
+                        "duplicate_reads_avg": 3.2,
+                    }
+                ]
+            ),
+            "coverage_table": pd.DataFrame(
+                [
+                    {
+                        "Face": "Left",
+                        "ExpectedToken": "331AABC",
+                        "Read": True,
+                    }
+                ]
+            ),
+            "logistics_per_tote_summary": pd.DataFrame(
+                [
+                    {
+                        "EPC": "331A00000000000000000001",
+                        "duration_present": 42.5,
+                        "total_reads": 15,
+                    }
+                ]
+            ),
+            "logistics_concurrency_timeline": pd.DataFrame(
+                [
+                    {
+                        "timestamp": pd.Timestamp("2025-01-01 12:01:00"),
+                        "active_epcs": 2,
+                        "duration_seconds": 30.0,
+                    }
+                ]
+            ),
+        }
         continuous_metrics = {
             "average_dwell_seconds": 1.8,
             "throughput_per_minute": 37.5,
@@ -155,6 +207,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
                 positions_df=positions,
                 structured_metrics=structured_metrics,
                 continuous_metrics=continuous_metrics,
+                logistics_metrics=logistics_metrics,
             )
 
             with pd.ExcelFile(out_path) as workbook:
@@ -168,6 +221,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
             "Posicoes_Pallet",
             "Structured_KPIs",
             "Fluxo_Contínuo",
+            "Logistica_KPIs",
         }
         self.assertTrue(
             expected_names.issubset(sheet_names),
@@ -262,6 +316,20 @@ class TestReportWorkbookStructure(unittest.TestCase):
             ]
         )
 
+        logistics_metrics = {
+            "total_logistics_epcs": 4,
+            "attempt_success_rate_pct": 75.0,
+            "attempt_failure_rate_pct": 25.0,
+            "tote_cycle_time_seconds": 30.0,
+            "duplicate_reads_per_tote": 2.0,
+            "coverage_pct": 88.0,
+            "concurrent_capacity": 3,
+            "concurrent_capacity_avg": 2.2,
+            "reader_uptime_pct": 97.0,
+            "reader_uptime_seconds": 2900.0,
+            "scheduled_session_seconds": 3000.0,
+        }
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             out_path = Path(tmp_dir) / "report.xlsx"
             write_excel(
@@ -272,6 +340,7 @@ class TestReportWorkbookStructure(unittest.TestCase):
                 metadata,
                 positions_df=positions_df,
                 structured_metrics=structured_metrics,
+                logistics_metrics=logistics_metrics,
             )
 
             exec_df = pd.read_excel(out_path, sheet_name="Indicadores_Executivos")
@@ -313,6 +382,12 @@ class TestReportWorkbookStructure(unittest.TestCase):
 
         positions_values = positions_sheet.astype(str).fillna("")
         self.assertIn("Participation (%)", positions_values.values)
+
+        self.assertIn("Total de Cajas Leydo", exec_values)
+        self.assertEqual(
+            int(exec_values["Total de Cajas Leydo"]),
+            logistics_metrics["total_logistics_epcs"],
+        )
 
     def test_executive_sheet_includes_continuous_metrics(self) -> None:
         summary = pd.DataFrame(

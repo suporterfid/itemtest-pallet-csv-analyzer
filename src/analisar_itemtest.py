@@ -56,6 +56,7 @@ def compose_summary_text(
     analysis_mode: str = "structured",
     continuous_details: dict | None = None,
     structured_metrics: dict | None = None,
+    logistics_metrics: dict | None = None,
 ) -> str:
     """Compose a human-readable summary with optional continuous-mode insights."""
 
@@ -546,6 +547,71 @@ def compose_summary_text(
         else:
             continuous_lines.append("- Nenhum alerta identificado para o modo contínuo.")
 
+    logistics_info = logistics_metrics or {}
+    logistics_lines: list[str] = []
+    total_logistics = logistics_info.get("total_logistics_epcs")
+    if total_logistics is not None and not pd.isna(total_logistics):
+        logistics_lines.append(f"- Total de Cajas Leydo: {int(total_logistics)}")
+    success_rate = logistics_info.get("attempt_success_rate_pct")
+    if success_rate is not None and not pd.isna(success_rate):
+        logistics_lines.append(
+            f"- Attempt success rate: {float(success_rate):.2f}%"
+        )
+    failure_rate = logistics_info.get("attempt_failure_rate_pct")
+    if failure_rate is not None and not pd.isna(failure_rate):
+        logistics_lines.append(
+            f"- Tasa de fallas de leitura: {float(failure_rate):.2f}%"
+        )
+    cycle_time = logistics_info.get("tote_cycle_time_seconds")
+    if cycle_time is not None and not pd.isna(cycle_time):
+        logistics_lines.append(
+            f"- Tiempo promedio de lectura por tote: {float(cycle_time):.2f} s"
+        )
+    duplicate_rate = logistics_info.get("duplicate_reads_per_tote")
+    if duplicate_rate is not None and not pd.isna(duplicate_rate):
+        logistics_lines.append(
+            f"- Tasa de lecturas duplicadas: {float(duplicate_rate):.2f}×"
+        )
+    coverage_pct = logistics_info.get("coverage_pct")
+    if coverage_pct is not None and not pd.isna(coverage_pct):
+        logistics_lines.append(
+            f"- Cobertura del área de leitura: {float(coverage_pct):.2f}%"
+        )
+    concurrent_capacity = logistics_info.get("concurrent_capacity")
+    if concurrent_capacity is not None and not pd.isna(concurrent_capacity):
+        peak_time = logistics_info.get("concurrent_capacity_time")
+        if peak_time is not None:
+            peak_label = _format_timestamp(peak_time)
+            if peak_label:
+                logistics_lines.append(
+                    f"- Capacidad de lectura simultánea: {int(concurrent_capacity)} totes @ {peak_label}"
+                )
+            else:
+                logistics_lines.append(
+                    f"- Capacidad de lectura simultánea: {int(concurrent_capacity)} totes"
+                )
+        else:
+            logistics_lines.append(
+                f"- Capacidad de lectura simultánea: {int(concurrent_capacity)} totes"
+            )
+    uptime_pct = logistics_info.get("reader_uptime_pct")
+    if uptime_pct is not None and not pd.isna(uptime_pct):
+        logistics_lines.append(
+            f"- Disponibilidad del sistema (uptime): {float(uptime_pct):.2f}%"
+        )
+    uptime_seconds = logistics_info.get("reader_uptime_seconds")
+    scheduled_seconds = logistics_info.get("scheduled_session_seconds")
+    if uptime_seconds is not None and not pd.isna(uptime_seconds):
+        detail = f"{float(uptime_seconds):.1f} s"
+        if scheduled_seconds is not None and not pd.isna(scheduled_seconds):
+            detail += f" de {float(scheduled_seconds):.1f} s programados"
+        logistics_lines.append(f"- Tempo de uptime reportado: {detail}")
+    average_concurrent = logistics_info.get("concurrent_capacity_avg")
+    if average_concurrent is not None and not pd.isna(average_concurrent):
+        logistics_lines.append(
+            f"- Capacidad simultánea promedio: {float(average_concurrent):.2f} totes"
+        )
+
     antenna_lines: list[str] = []
     if ant_counts is not None and not ant_counts.empty:
         for row in ant_counts.itertuples(index=False):
@@ -611,6 +677,8 @@ def compose_summary_text(
         if not continuous_lines:
             continuous_lines = ["- No additional indicators available."]
         sections.append(("Continuous mode indicators", continuous_lines))
+    if logistics_lines:
+        sections.append(("Logistics KPIs", logistics_lines))
     sections.extend(
         [
             ("Reads by antenna", antenna_lines),
