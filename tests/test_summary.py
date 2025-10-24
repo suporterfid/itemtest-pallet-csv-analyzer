@@ -104,6 +104,8 @@ class TestComposeSummaryText(unittest.TestCase):
             "coverage_rate": 80.0,
             "expected_total": 5,
             "expected_found": 4,
+            "tag_read_redundancy": 2.4,
+            "antenna_balance": 4.3,
             "missing_expected_full": ["CCC"],
             "missing_expected_suffix": [],
             "global_rssi_avg": -47.8,
@@ -122,6 +124,11 @@ class TestComposeSummaryText(unittest.TestCase):
             structured_metrics=structured_metrics,
         )
 
+        self.assertIn("CoverageRate: 80.00% (4/5)", text)
+        self.assertIn("Cobertura de EPCs esperados", text)
+        self.assertIn("TagReadRedundancy: 2.40×", text)
+        self.assertIn("Redundância de leitura", text)
+        self.assertIn("AntennaBalance: 4.30%", text)
         self.assertIn("Hotspots de leitura", text)
         self.assertIn("Frequências utilizadas", text)
         self.assertIn("Erros de localização", text)
@@ -181,6 +188,11 @@ class TestComposeSummaryText(unittest.TestCase):
             continuous_details=continuous_details,
         )
 
+        self.assertIn("TagDwellTimeAvg: 3.20 s", summary_text)
+        self.assertIn("ThroughputPerMinute: 12.50 EPCs/min", summary_text)
+        self.assertIn("ReadContinuityRate: 75.00%", summary_text)
+        self.assertIn("SessionDuration: 06:00", summary_text)
+        self.assertIn("ConcurrentTagsPeak: 3 @", summary_text)
         self.assertIn("Tempo máximo de permanência", summary_text)
         self.assertIn("Throughput da sessão (leituras/min)", summary_text)
         self.assertIn("Índice de congestão", summary_text)

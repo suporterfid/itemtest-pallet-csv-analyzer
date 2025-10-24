@@ -7,6 +7,8 @@ from typing import Callable
 
 import pandas as pd
 
+from .executive_kpis import build_executive_kpi_table, format_mode_indicator
+
 
 SHEET_RESUMO = "Resumo_por_EPC"
 SHEET_UNEXPECTED = "EPCs_inesperados"
@@ -116,6 +118,14 @@ def write_excel(
     metrics_info = continuous_metrics or {}
     structured_info = structured_metrics or {}
     logistics_info = logistics_metrics or {}
+
+    exec_df = build_executive_kpi_table(
+        summary_epc,
+        structured_info=structured_info,
+        continuous_info=metrics_info,
+        logistics_info=logistics_info,
+        metadata=metadata,
+    )
     timeline_df = None
     if continuous_timeline is not None:
         if isinstance(continuous_timeline, pd.DataFrame):
@@ -174,9 +184,6 @@ def write_excel(
                 concurrency_df["timestamp"], errors="coerce"
             )
 
-    executive_rows: list[dict[str, object]] = []
-
-
     def _build_alert_lines() -> list[str]:
         alerts = [str(alert) for alert in metrics_info.get("alerts", []) if alert]
         if alerts:
@@ -232,41 +239,6 @@ def write_excel(
         formatted = formatter(value) if formatter else value
         metrics_rows.append({"Metric": label, "Value": formatted})
 
-    def _append_executive(
-        label: str, value: object, formatter: Callable[[object], object] | None = None
-    ) -> None:
-        if value is None:
-            return
-        if isinstance(value, float) and pd.isna(value):
-            return
-        if isinstance(value, pd.Timestamp) and pd.isna(value):
-            return
-        formatted = formatter(value) if formatter else value
-        executive_rows.append({"Indicator": label, "Value": formatted})
-
-    def _format_seconds(value: object) -> str:
-        try:
-            seconds = float(value)
-        except (TypeError, ValueError):
-            return str(value)
-        if seconds >= 300:
-            minutes = int(seconds // 60)
-            remainder = int(round(seconds % 60))
-            return f"{minutes:02d}:{remainder:02d}"
-        return f"{seconds:.2f}"
-
-    def _first_available(key: str) -> object:
-        for source in (metrics_info, structured_info):
-            if not source:
-                continue
-            value = source.get(key)
-            if value is None:
-                continue
-            if isinstance(value, float) and pd.isna(value):
-                continue
-            return value
-        return None
-
     def _format_peak_with_timestamp(
         value: object, timestamp: object
     ) -> str | int | None:
@@ -300,305 +272,6 @@ def write_excel(
             performer_label += f", {int(reads_value)} reads"
         return performer_label
 
-    def _format_mode_indicator(source: dict | None) -> str | None:
-        if not isinstance(source, dict):
-            return None
-        description = source.get("mode_performance_text")
-        if description:
-            return str(description)
-        indicator = source.get("mode_performance")
-        if isinstance(indicator, dict):
-            description = indicator.get("description")
-            if description:
-                return str(description)
-            label_parts: list[str] = []
-            mode_value = indicator.get("mode_index")
-            if mode_value is not None and not (
-                isinstance(mode_value, float) and pd.isna(mode_value)
-            ):
-                label_parts.append(f"ModeIndex {mode_value}")
-            rate_segments: list[str] = []
-            reads_per_second = indicator.get("reads_per_second")
-            if reads_per_second is not None and not pd.isna(reads_per_second):
-                rate_segments.append(f"{float(reads_per_second):.2f} leituras/s")
-            reads_per_minute = indicator.get("reads_per_minute")
-            if reads_per_minute is not None and not pd.isna(reads_per_minute):
-                rate_segments.append(f"{float(reads_per_minute):.2f} leituras/min")
-            epcs_per_minute = indicator.get("epcs_per_minute")
-            if epcs_per_minute is not None and not pd.isna(epcs_per_minute):
-                rate_segments.append(f"{float(epcs_per_minute):.2f} EPCs/min")
-            if rate_segments:
-                prefix = label_parts[0] if label_parts else "Indicador de modo"
-                return f"{prefix} — {', '.join(rate_segments)}"
-            if label_parts:
-                return label_parts[0]
-        return None
-
-    total_epcs: int | None = None
-    if "EPC" in summary_epc.columns:
-        try:
-            total_epcs = int(summary_epc["EPC"].nunique())
-        except Exception:
-            total_epcs = None
-    elif not summary_epc.empty:
-        total_epcs = int(summary_epc.shape[0])
-    if total_epcs is not None:
-        _append_executive("Distinct EPCs", total_epcs, lambda value: int(value))
-
-    if "total_reads" in summary_epc.columns:
-        try:
-            total_reads_val = int(summary_epc["total_reads"].sum())
-            _append_executive("Total reads", total_reads_val, lambda value: int(value))
-        except Exception:
-            pass
-
-    mode_indicator_structured = _format_mode_indicator(structured_info)
-    mode_indicator_continuous = _format_mode_indicator(metrics_info)
-    mode_indicator_combined = mode_indicator_continuous or mode_indicator_structured
-    if mode_indicator_combined:
-        executive_rows.append(
-            {"Indicator": "Mode performance", "Value": mode_indicator_combined}
-        )
-
-    _append_executive(
-        "Average dwell time (s)",
-        metrics_info.get("average_dwell_seconds"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Maximum dwell time (s)",
-        metrics_info.get("tag_dwell_time_max"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Throughput (distinct EPCs/min)",
-        metrics_info.get("throughput_per_minute"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Session throughput (reads/min)",
-        metrics_info.get("session_throughput"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Read continuity rate (%)",
-        metrics_info.get("read_continuity_rate"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Session duration (s)",
-        metrics_info.get("session_duration_seconds"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Active time with EPCs (s)",
-        metrics_info.get("session_active_seconds"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Average concurrent EPCs",
-        metrics_info.get("concurrency_average"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Congestion index (reads/s)",
-        metrics_info.get("congestion_index"),
-        lambda value: round(float(value), 2),
-    )
-    peak_concurrency_exec = metrics_info.get("concurrency_peak")
-    peak_concurrency_repr = _format_peak_with_timestamp(
-        peak_concurrency_exec, metrics_info.get("concurrency_peak_time")
-    )
-    if peak_concurrency_repr is not None:
-        executive_rows.append(
-            {"Indicator": "Peak concurrent EPCs", "Value": peak_concurrency_repr}
-        )
-
-    _append_executive(
-        "Inactive periods (>5× window)",
-        metrics_info.get("inactive_periods_count"),
-        lambda value: int(value),
-    )
-    _append_executive(
-        "Total inactive time (s)",
-        metrics_info.get("inactive_total_seconds"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Longest inactive period (s)",
-        metrics_info.get("inactive_longest_seconds"),
-        lambda value: round(float(value), 2),
-    )
-
-    throughput_mean = metrics_info.get("epcs_per_minute_mean")
-    _append_executive(
-        "Average active EPCs/min",
-        throughput_mean,
-        lambda value: round(float(value), 2),
-    )
-
-    peak_epm_repr = _format_peak_with_timestamp(
-        metrics_info.get("epcs_per_minute_peak"),
-        metrics_info.get("epcs_per_minute_peak_time"),
-    )
-    if peak_epm_repr is not None:
-        executive_rows.append(
-            {"Indicator": "Peak active EPCs/min", "Value": peak_epm_repr}
-        )
-
-    dominant_exec = metrics_info.get("dominant_antenna")
-    if dominant_exec is not None and str(dominant_exec) != "" and not (
-        isinstance(dominant_exec, float) and pd.isna(dominant_exec)
-    ):
-        try:
-            dominant_display = int(dominant_exec)
-        except (TypeError, ValueError):
-            dominant_display = dominant_exec
-        executive_rows.append({"Indicator": "Dominant antenna", "Value": dominant_display})
-
-    global_rssi_avg_value = _first_available("global_rssi_avg")
-    _append_executive(
-        "Global RSSI mean (dBm)",
-        global_rssi_avg_value,
-        lambda value: round(float(value), 2),
-    )
-    global_rssi_std_value = _first_available("global_rssi_std")
-    _append_executive(
-        "Global RSSI std (dBm)",
-        global_rssi_std_value,
-        lambda value: round(float(value), 2),
-    )
-    noise_indicator_exec = _first_available("rssi_noise_indicator")
-    if noise_indicator_exec:
-        executive_rows.append(
-            {"Indicator": "RSSI noise indicator", "Value": noise_indicator_exec}
-        )
-
-    noise_reads_exec = _first_available("rssi_noise_reads_per_epc")
-    _append_executive(
-        "Reads per EPC (noise check)",
-        noise_reads_exec,
-        lambda value: round(float(value), 2),
-    )
-
-    # Logistics KPIs
-    _append_executive(
-        "Total de Cajas Leydo",
-        logistics_info.get("total_logistics_epcs"),
-        lambda value: int(value),
-    )
-    _append_executive(
-        "AttemptSuccessRate (%)",
-        logistics_info.get("attempt_success_rate_pct"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Tasa de fallas de leitura (%)",
-        logistics_info.get("attempt_failure_rate_pct"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Tiempo promedio de lectura por tote (s)",
-        logistics_info.get("tote_cycle_time_seconds"),
-        _format_seconds,
-    )
-    _append_executive(
-        "Tasa de lecturas duplicadas (×)",
-        logistics_info.get("duplicate_reads_per_tote"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Cobertura del área de leitura (%)",
-        logistics_info.get("coverage_pct"),
-        lambda value: round(float(value), 2),
-    )
-
-    concurrent_capacity_value = logistics_info.get("concurrent_capacity")
-    if concurrent_capacity_value is not None and not pd.isna(concurrent_capacity_value):
-        peak_time_value = logistics_info.get("concurrent_capacity_time")
-        peak_label = None
-        if peak_time_value is not None:
-            peak_label = _format_timestamp(peak_time_value)
-            if peak_label == "N/A":
-                peak_label = None
-        if peak_label:
-            executive_rows.append(
-                {
-                    "Indicator": "Capacidad de lectura simultánea",
-                    "Value": f"{int(concurrent_capacity_value)} @ {peak_label}",
-                }
-            )
-        else:
-            _append_executive(
-                "Capacidad de lectura simultánea",
-                concurrent_capacity_value,
-                lambda value: int(value),
-            )
-
-    _append_executive(
-        "Capacidad simultánea promedio",
-        logistics_info.get("concurrent_capacity_avg"),
-        lambda value: round(float(value), 2),
-    )
-    _append_executive(
-        "Disponibilidad del sistema (%)",
-        logistics_info.get("reader_uptime_pct"),
-        lambda value: round(float(value), 2),
-    )
-    uptime_seconds_value = logistics_info.get("reader_uptime_seconds")
-    if uptime_seconds_value is not None and not pd.isna(uptime_seconds_value):
-        uptime_detail = f"{float(uptime_seconds_value):.1f} s"
-        scheduled_value = logistics_info.get("scheduled_session_seconds")
-        if scheduled_value is not None and not pd.isna(scheduled_value):
-            uptime_detail += f" de {float(scheduled_value):.1f} s"
-        executive_rows.append(
-            {"Indicator": "Tempo de uptime reportado", "Value": uptime_detail}
-        )
-
-    coverage_rate = structured_info.get("coverage_rate")
-    if coverage_rate is not None and not pd.isna(coverage_rate):
-        expected_total = structured_info.get("expected_total")
-        expected_found = structured_info.get("expected_found")
-        coverage_label = f"{float(coverage_rate):.2f}%"
-        if expected_total is not None and expected_found is not None:
-            coverage_label += f" ({int(expected_found)}/{int(expected_total)})"
-        executive_rows.append({"Indicator": "Coverage rate", "Value": coverage_label})
-
-    redundancy_exec = structured_info.get("tag_read_redundancy")
-    if redundancy_exec is not None and not pd.isna(redundancy_exec):
-        executive_rows.append(
-            {
-                "Indicator": "Tag read redundancy",
-                "Value": f"{float(redundancy_exec):.2f}×",
-            }
-        )
-
-    balance_exec = structured_info.get("antenna_balance")
-    if balance_exec is not None and not pd.isna(balance_exec):
-        executive_rows.append(
-            {
-                "Indicator": "Antenna balance (σ)",
-                "Value": f"{float(balance_exec):.2f}%",
-            }
-        )
-
-    rssi_stability_exec = structured_info.get("rssi_stability_index")
-    if rssi_stability_exec is not None and not pd.isna(rssi_stability_exec):
-        executive_rows.append(
-            {
-                "Indicator": "RSSI stability index (σ)",
-                "Value": f"{float(rssi_stability_exec):.2f} dBm",
-            }
-        )
-
-    top_performer_label = _format_top_performer(
-        structured_info.get("top_performer_antenna")
-    )
-    if top_performer_label:
-        executive_rows.append(
-            {"Indicator": "Top performer antenna", "Value": top_performer_label}
-        )
-
     structured_rows: list[dict[str, object]] = []
     missing_expected_df = pd.DataFrame()
     face_coverage_df = None
@@ -609,7 +282,7 @@ def write_excel(
     location_errors_df: pd.DataFrame | None = None
     reads_by_face_df: pd.DataFrame | None = None
     if structured_info:
-        mode_indicator_structured = _format_mode_indicator(structured_info)
+        mode_indicator_structured = format_mode_indicator(structured_info)
         if mode_indicator_structured:
             structured_rows.append(
                 {"Metric": "Mode performance", "Value": mode_indicator_structured}
@@ -869,17 +542,6 @@ def write_excel(
             )
 
         exec_sheet = SHEET_EXECUTIVE
-        if executive_rows:
-            exec_df = pd.DataFrame(executive_rows)
-        else:
-            exec_df = pd.DataFrame(
-                [
-                    {
-                        "Indicator": "Message",
-                        "Value": "No executive indicators available.",
-                    }
-                ]
-            )
         _safe_to_excel(
             exec_df,
             writer=writer,
@@ -1123,7 +785,11 @@ def write_excel(
             )
 
         metrics_rows: list[dict[str, object]] = []
-        mode_indicator_continuous = _format_mode_indicator(metrics_info)
+        mode_indicator_continuous = format_mode_indicator(metrics_info)
+        peak_epm_repr = _format_peak_with_timestamp(
+            metrics_info.get("epcs_per_minute_peak"),
+            metrics_info.get("epcs_per_minute_peak_time"),
+        )
         if mode_indicator_continuous:
             metrics_rows.append(
                 {"Metric": "Mode performance", "Value": mode_indicator_continuous}

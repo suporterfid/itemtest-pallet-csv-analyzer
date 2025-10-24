@@ -8,6 +8,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from .executive_kpis import iter_executive_kpis
 from .pallet_layout import ROW_COLUMN
 
 
@@ -61,6 +62,8 @@ def compose_summary_text(
     """Compose a human-readable summary with optional continuous-mode insights."""
 
     structured_info = structured_metrics or {}
+    logistics_info = logistics_metrics or {}
+    continuous_info = continuous_details or {}
     total_epcs = int(summary.shape[0]) if summary is not None else 0
     total_reads = int(summary["total_reads"].sum()) if not summary.empty else 0
 
@@ -182,6 +185,20 @@ def compose_summary_text(
         mode_line = _format_mode_line(structured_info)
     if mode_line:
         general_lines.append(f"- {mode_line}")
+
+    executive_entries = list(
+        iter_executive_kpis(
+            summary,
+            structured_info=structured_info,
+            continuous_info=continuous_info,
+            logistics_info=logistics_info,
+            metadata=metadata,
+        )
+    )
+    executive_lines = [
+        f"- {entry.indicator}: {entry.result} — {entry.interpretation}"
+        for entry in executive_entries
+    ]
 
     structured_lines: list[str] = []
     if analysis_mode != "continuous" and structured_info:
@@ -547,7 +564,6 @@ def compose_summary_text(
         else:
             continuous_lines.append("- Nenhum alerta identificado para o modo contínuo.")
 
-    logistics_info = logistics_metrics or {}
     logistics_lines: list[str] = []
     total_logistics = logistics_info.get("total_logistics_epcs")
     if total_logistics is not None and not pd.isna(total_logistics):
@@ -555,7 +571,7 @@ def compose_summary_text(
     success_rate = logistics_info.get("attempt_success_rate_pct")
     if success_rate is not None and not pd.isna(success_rate):
         logistics_lines.append(
-            f"- Attempt success rate: {float(success_rate):.2f}%"
+            f"- Tasa promedio de lectura por intento: {float(success_rate):.2f}%"
         )
     failure_rate = logistics_info.get("attempt_failure_rate_pct")
     if failure_rate is not None and not pd.isna(failure_rate):
@@ -565,7 +581,7 @@ def compose_summary_text(
     cycle_time = logistics_info.get("tote_cycle_time_seconds")
     if cycle_time is not None and not pd.isna(cycle_time):
         logistics_lines.append(
-            f"- Tiempo promedio de lectura por tote: {float(cycle_time):.2f} s"
+            f"- Tiempo promedio de leitura por tote: {float(cycle_time):.2f} s"
         )
     duplicate_rate = logistics_info.get("duplicate_reads_per_tote")
     if duplicate_rate is not None and not pd.isna(duplicate_rate):
@@ -597,7 +613,7 @@ def compose_summary_text(
     uptime_pct = logistics_info.get("reader_uptime_pct")
     if uptime_pct is not None and not pd.isna(uptime_pct):
         logistics_lines.append(
-            f"- Disponibilidad del sistema (uptime): {float(uptime_pct):.2f}%"
+            f"- Disponibilidad del sistema: {float(uptime_pct):.2f}%"
         )
     uptime_seconds = logistics_info.get("reader_uptime_seconds")
     scheduled_seconds = logistics_info.get("scheduled_session_seconds")
@@ -669,6 +685,7 @@ def compose_summary_text(
 
     sections = [
         ("Key metadata", metadata_lines),
+        ("Executive KPIs", executive_lines),
         ("General indicators", general_lines),
     ]
     if structured_lines:
