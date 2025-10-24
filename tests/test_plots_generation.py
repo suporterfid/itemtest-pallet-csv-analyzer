@@ -174,3 +174,12 @@ def test_process_continuous_file_generates_rssi_frequency_plot(
     )
     assert expected_plot.exists(), "Scatter plot for continuous mode was not created."
     assert expected_plot.stat().st_size > 0
+
+    throughput_plot = (
+        tmp_path
+        / "graficos"
+        / f"{csv_path.stem}_continuous"
+        / "throughput_per_minute.png"
+    )
+    assert throughput_plot.exists(), "Throughput per minute plot was not created."
+    assert throughput_plot.stat().st_size > 0
