@@ -32,13 +32,20 @@ def test_compile_logistics_kpis_with_metadata_and_continuous_details() -> None:
     metadata = {"ReaderUptimeSeconds": 5400, "ScheduledSessionSeconds": 6000}
     positions_df = pd.DataFrame(
         {
-            "Face": ["Left", "Front", "Right"],
+            "Face": ["Left", "Front", "Right", "Back"],
             "ExpectedToken": [
                 "331A00000000000000000001",
                 "331A00000000000000000002",
                 "998877000000000000000000",
+                "331A00000000000000000003",
             ],
-            "Read": [True, False, True],
+            "ExpectedEPC": [
+                "331A00000000000000000001",
+                "331A00000000000000000002",
+                "998877000000000000000000",
+                "331A00000000000000000003",
+            ],
+            "Read": [True, True, True, False],
         }
     )
     continuous_details = {
@@ -72,7 +79,12 @@ def test_compile_logistics_kpis_with_metadata_and_continuous_details() -> None:
     assert result["attempt_success_rate_pct"] == 100.0
     assert result["attempt_failure_rate_pct"] == 0.0
     assert result["duplicate_reads_per_tote"] == ((12 - 1) + (8 - 1)) / 2
-    assert result["coverage_pct"] == 50.0
+    assert result["coverage_pct"] == pytest.approx(66.6666666667)
+    assert result["expected_logistics_epcs_count"] == 3
+    assert result["observed_logistics_epcs_count"] == 2
+    assert result["logistics_read_rate_pct"] == pytest.approx(66.6666666667)
+    assert result["missed_logistics_epcs_count"] == 1
+    assert result["missed_logistics_epcs"] == ["331A00000000000000000003"]
     assert result["concurrent_capacity"] == 3
     assert result["concurrent_capacity_avg"] == 1.75
     assert result["reader_uptime_pct"] == pytest.approx(90.0)
@@ -86,3 +98,36 @@ def test_logistics_kpis_without_logistics_epcs() -> None:
     assert result["total_logistics_epcs"] == 0
     assert result["attempt_success_rate_pct"] == 0.0
     assert result["attempt_failure_rate_pct"] == 100.0
+    assert result["expected_logistics_epcs_count"] == 0
+    assert result["logistics_read_rate_pct"] is None
+    assert result["missed_logistics_epcs_count"] == 0
+
+
+def test_logistics_kpis_with_expected_full_manifest() -> None:
+    summary = pd.DataFrame(
+        {
+            "EPC": [
+                "331A00000000000000000001",
+            ],
+            "total_reads": [10],
+            "duration_present": [25.0],
+            "first_time": [pd.Timestamp("2025-01-01 08:00:00")],
+            "last_time": [pd.Timestamp("2025-01-01 08:00:30")],
+        }
+    )
+    expected_full = {
+        "331A00000000000000000001",
+        "331A00000000000000000002",
+    }
+
+    result = compile_logistics_kpis(
+        summary,
+        {},
+        positions_df=None,
+        expected_full=expected_full,
+    )
+
+    assert result["expected_logistics_epcs_count"] == 2
+    assert result["logistics_read_rate_pct"] == pytest.approx(50.0)
+    assert result["missed_logistics_epcs_count"] == 1
+    assert result["missed_logistics_epcs"] == ["331A00000000000000000002"]

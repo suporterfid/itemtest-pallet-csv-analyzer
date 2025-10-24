@@ -13,6 +13,8 @@ CANONICAL_KPI_ORDER: tuple[str, ...] = (
     "CoverageRate",
     "TotalDistinctEPCs",
     "Total de Cajas Leydo",
+    "LogisticsReadRate331A",
+    "MissedLogisticsEPCs",
     "Tasa promedio de lectura por intento",
     "Tiempo promedio de leitura por tote",
     "Tasa de fallas de leitura",
@@ -396,6 +398,69 @@ class _ExecutiveCollector:
             else "Sem totes logísticos processados."
         )
         self._append_executive("Total de Cajas Leydo", result, interpretation)
+
+    def _handle_LogisticsReadRate331A(self) -> None:
+        value = self.logistics_info.get("logistics_read_rate_pct")
+        expected = self.logistics_info.get("expected_logistics_epcs_count")
+        observed = self.logistics_info.get("observed_logistics_epcs_count")
+        total = self.logistics_info.get("total_logistics_epcs")
+        result = None
+        if value is not None and not _is_missing(value):
+            result = _format_percentage(value)
+            if (
+                expected is not None
+                and not _is_missing(expected)
+                and float(expected) > 0
+            ):
+                observed_value = observed
+                if observed_value is None or _is_missing(observed_value):
+                    observed_value = total
+                if observed_value is not None and not _is_missing(observed_value):
+                    result += f" ({int(observed_value)}/{int(expected)})"
+            interpretation = _interpret_percentage(
+                value, context="Taxa de leitura 331A"
+            )
+        else:
+            if (
+                expected is not None
+                and not _is_missing(expected)
+                and float(expected) > 0
+            ):
+                observed_value = observed
+                if observed_value is None or _is_missing(observed_value):
+                    observed_value = total
+                observed_label = (
+                    int(observed_value) if observed_value is not None else 0
+                )
+                interpretation = (
+                    f"{observed_label} de {int(expected)} totes 331A capturados."
+                )
+            else:
+                interpretation = "Sem manifesto 331A para calcular taxa de leitura."
+        self._append_executive("LogisticsReadRate331A", result, interpretation)
+
+    def _handle_MissedLogisticsEPCs(self) -> None:
+        value = self.logistics_info.get("missed_logistics_epcs_count")
+        missed_list = self.logistics_info.get("missed_logistics_epcs") or []
+        result = None
+        if value is not None and not _is_missing(value):
+            result = str(int(value))
+            count = int(value)
+            if count == 0:
+                interpretation = "Nenhum tote 331A esperado ficou sem leitura."
+            else:
+                preview = ", ".join(str(item) for item in missed_list[:3])
+                if len(missed_list) > 3:
+                    preview += ", …"
+                if preview:
+                    interpretation = (
+                        f"{count} totes 331A não foram lidos (ex.: {preview})."
+                    )
+                else:
+                    interpretation = f"{count} totes 331A não foram lidos."
+        else:
+            interpretation = "Sem dados de totes 331A esperados para avaliar faltantes."
+        self._append_executive("MissedLogisticsEPCs", result, interpretation)
 
     def _handle_Tasa_promedio_de_lectura_por_intento(self) -> None:
         value = self.logistics_info.get("attempt_success_rate_pct")

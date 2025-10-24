@@ -968,6 +968,54 @@ def calculate_reader_uptime_from_metadata(metadata: dict[str, object] | None) ->
     }
 
 
+def _collect_expected_logistics_tokens(
+    *,
+    coverage_mask: pd.DataFrame | None,
+    positions_df: pd.DataFrame | None,
+    expected_full: Collection[str] | None,
+    prefix: str,
+) -> set[str]:
+    """Return a normalised set of expected logistics EPCs."""
+
+    prefix_upper = prefix.upper()
+    expected_tokens: set[str] = set()
+
+    def _ingest(values: Iterable | pd.Series | None) -> None:
+        if values is None:
+            return
+        if isinstance(values, pd.Series):
+            iterable = values.tolist()
+        else:
+            iterable = values
+        for value in iterable:
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                continue
+            if isinstance(value, (list, tuple, set)):
+                _ingest(value)
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            token = text.upper()
+            if token.startswith(prefix_upper):
+                expected_tokens.add(token)
+
+    if coverage_mask is not None and not coverage_mask.empty:
+        for column in ("ExpectedEPC", "ExpectedToken"):
+            if column in coverage_mask.columns:
+                _ingest(coverage_mask[column])
+
+    if not expected_tokens and positions_df is not None and not positions_df.empty:
+        for column in ("ExpectedEPC", "ExpectedToken"):
+            if column in positions_df.columns:
+                _ingest(positions_df[column])
+
+    if expected_full:
+        _ingest(expected_full)
+
+    return expected_tokens
+
+
 def compile_logistics_kpis(
     summary_df: pd.DataFrame,
     metadata: dict[str, object] | None,
@@ -975,6 +1023,7 @@ def compile_logistics_kpis(
     positions_df: pd.DataFrame | None = None,
     continuous_details: dict[str, object] | None = None,
     attempt_windows: Iterable[dict[str, object]] | None = None,
+    expected_full: Collection[str] | None = None,
     prefix: str = LOGISTICS_PREFIX,
 ) -> dict[str, object]:
     """Aggregate logistics KPIs combining structured and continuous artefacts."""
@@ -996,6 +1045,29 @@ def compile_logistics_kpis(
     coverage_pct, coverage_mask = calculate_logistics_spatial_coverage(
         positions_df, prefix=prefix
     )
+
+    observed_tokens: set[str] = set()
+    if not logistics_df.empty and "EPC" in logistics_df.columns:
+        observed_tokens = set(
+            logistics_df["EPC"].dropna().astype(str).str.upper().tolist()
+        )
+    observed_count = int(len(observed_tokens))
+
+    expected_tokens = _collect_expected_logistics_tokens(
+        coverage_mask=coverage_mask,
+        positions_df=positions_df,
+        expected_full=expected_full,
+        prefix=prefix,
+    )
+    expected_count = int(len(expected_tokens))
+
+    read_rate_pct: float | None = None
+    if expected_count > 0:
+        read_rate_pct = observed_count / expected_count * 100.0
+
+    missed_tokens: list[str] = []
+    if expected_tokens:
+        missed_tokens = sorted(expected_tokens.difference(observed_tokens))
 
     logistics_concurrency_peak = None
     logistics_concurrency_average = None
@@ -1050,6 +1122,12 @@ def compile_logistics_kpis(
         "successful_attempts": attempts_info.get("successful_attempts"),
         "coverage_pct": coverage_pct,
         "coverage_table": coverage_mask,
+        "expected_logistics_epcs": sorted(expected_tokens),
+        "expected_logistics_epcs_count": expected_count,
+        "observed_logistics_epcs_count": observed_count,
+        "logistics_read_rate_pct": read_rate_pct,
+        "missed_logistics_epcs": missed_tokens,
+        "missed_logistics_epcs_count": len(missed_tokens),
         "concurrent_capacity": logistics_concurrency_peak,
         "concurrent_capacity_avg": logistics_concurrency_average,
         "concurrent_capacity_time": logistics_concurrency_peak_time,

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### ✨ Features
+- Implemented LogisticsReadRate331A and MissedLogisticsEPCs calculations across the analytics pipeline, Excel logistics sheet, executive dashboard, and textual summaries with manifest-aware expectations.
 - Documented the logistics KPI suite (throughput, dwell, congestion, dock cycle
   insights) and refreshed `SPEC.md`/`GUIDE_METRICS.md`, aligning executive
   output formats and consolidated summaries so reporting reflects the updated
@@ -31,6 +32,9 @@
 - Generated a structured textual summary combining metadata, per-antenna statistics, and layout coverage, registrando-o nos arquivos de log sob `output/logs/` para cada CSV processado.
 - Configured centralized logging for the CLI to persist INFO/ERROR entries in `output/logs/<data>_itemtest_analyzer.log` while mirroring messages to the console.
 - Metadata parsing agora replica o `Hostname` a partir de `ReaderName` ou da primeira linha válida do CSV, garantindo que o IP do leitor apareça no resumo textual e na planilha `Metadata`.
+
+### 🧩 Improvements
+- Surfaced missed logistics EPC lists and read-rate context in consolidated summaries to aid troubleshooting of tote coverage gaps.
 
 ### 🐞 Fixes
 - Corrigido o bootstrap do CLI para aceitar tanto `python src/itemtest_analyzer.py` quanto `python -m src.itemtest_analyzer`, mantendo a compatibilidade com o `run.bat` no Windows.

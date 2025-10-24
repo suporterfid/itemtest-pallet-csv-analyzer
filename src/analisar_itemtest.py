@@ -568,6 +568,32 @@ def compose_summary_text(
     total_logistics = logistics_info.get("total_logistics_epcs")
     if total_logistics is not None and not pd.isna(total_logistics):
         logistics_lines.append(f"- Total de Cajas Leydo: {int(total_logistics)}")
+    expected_logistics = logistics_info.get("expected_logistics_epcs_count")
+    read_rate = logistics_info.get("logistics_read_rate_pct")
+    observed_logistics = logistics_info.get("observed_logistics_epcs_count")
+    if read_rate is not None and not pd.isna(read_rate):
+        detail = ""
+        if (
+            expected_logistics is not None
+            and not pd.isna(expected_logistics)
+            and float(expected_logistics) > 0
+        ):
+            observed_value = observed_logistics
+            if observed_value is None or pd.isna(observed_value):
+                observed_value = total_logistics
+            if observed_value is not None and not pd.isna(observed_value):
+                detail = f" ({int(observed_value)}/{int(expected_logistics)} totes)"
+        logistics_lines.append(
+            f"- LogisticsReadRate331A: {float(read_rate):.2f}%{detail}"
+        )
+    elif (
+        expected_logistics is not None
+        and not pd.isna(expected_logistics)
+        and float(expected_logistics) > 0
+    ):
+        logistics_lines.append(
+            f"- Logistics totes esperados (331A): {int(expected_logistics)}"
+        )
     success_rate = logistics_info.get("attempt_success_rate_pct")
     if success_rate is not None and not pd.isna(success_rate):
         logistics_lines.append(
@@ -593,6 +619,28 @@ def compose_summary_text(
         logistics_lines.append(
             f"- Cobertura del área de leitura: {float(coverage_pct):.2f}%"
         )
+    missed_logistics = logistics_info.get("missed_logistics_epcs_count")
+    if missed_logistics is not None and not pd.isna(missed_logistics):
+        try:
+            missed_total = int(missed_logistics)
+        except (TypeError, ValueError):
+            missed_total = None
+        if missed_total is not None:
+            if missed_total == 0:
+                logistics_lines.append("- Missed Logistics EPCs: 0")
+            else:
+                missed_list = logistics_info.get("missed_logistics_epcs") or []
+                preview = ", ".join(str(item) for item in missed_list[:5])
+                if len(missed_list) > 5:
+                    preview += ", …"
+                if preview:
+                    logistics_lines.append(
+                        f"- Missed Logistics EPCs: {missed_total} ({preview})"
+                    )
+                else:
+                    logistics_lines.append(
+                        f"- Missed Logistics EPCs: {missed_total}"
+                    )
     concurrent_capacity = logistics_info.get("concurrent_capacity")
     if concurrent_capacity is not None and not pd.isna(concurrent_capacity):
         peak_time = logistics_info.get("concurrent_capacity_time")
