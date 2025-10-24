@@ -10,6 +10,7 @@ import pandas as pd
 from src.metrics import (
     calculate_expected_epc_stats,
     compile_structured_kpis,
+    calculate_mode_performance,
 )
 
 
@@ -192,6 +193,46 @@ class TestStructuredMetrics(unittest.TestCase):
         reads_by_face = metrics["reads_by_face"]
         left_face = reads_by_face.loc[reads_by_face["Face"] == "Left"].iloc[0]
         self.assertEqual(int(left_face["total_reads"]), 20)
+
+    def test_calculate_mode_performance_with_metadata(self) -> None:
+        """Mode performance should derive read rates when metadata provides ModeIndex."""
+
+        metadata = {"ModeIndex": 5}
+        indicator = calculate_mode_performance(metadata, self.summary, self.raw_df)
+
+        self.assertEqual(indicator["mode_index"], 5)
+
+        duration_seconds = (
+            self.raw_df["Timestamp"].max() - self.raw_df["Timestamp"].min()
+        ).total_seconds()
+        expected_reads_per_second = self.raw_df.shape[0] / duration_seconds
+        expected_reads_per_minute = expected_reads_per_second * 60.0
+        expected_epcs_per_minute = self.summary.shape[0] / (duration_seconds / 60.0)
+
+        self.assertAlmostEqual(
+            indicator["reads_per_second"], expected_reads_per_second, places=6
+        )
+        self.assertAlmostEqual(
+            indicator["reads_per_minute"], expected_reads_per_minute, places=6
+        )
+        self.assertAlmostEqual(
+            indicator["epcs_per_minute"], expected_epcs_per_minute, places=6
+        )
+        description = indicator["description"]
+        self.assertIsInstance(description, str)
+        self.assertIn("ModeIndex 5", description)
+        self.assertIn("leituras/s", description)
+
+    def test_calculate_mode_performance_without_mode_index(self) -> None:
+        """Helper should return empty indicators when ModeIndex metadata is missing."""
+
+        indicator = calculate_mode_performance({}, self.summary, self.raw_df)
+
+        self.assertIsNone(indicator["mode_index"])
+        self.assertIsNone(indicator["reads_per_second"])
+        self.assertIsNone(indicator["reads_per_minute"])
+        self.assertIsNone(indicator["epcs_per_minute"])
+        self.assertIsNone(indicator["description"])
 
 
 if __name__ == "__main__":

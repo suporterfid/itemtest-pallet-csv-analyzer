@@ -27,6 +27,7 @@ from .metrics import (
     summarize_by_epc,
     summarize_by_antenna,
     compile_structured_kpis,
+    calculate_mode_performance,
 )
 from .plots import (
     plot_reads_by_epc,
@@ -215,6 +216,7 @@ def _format_top_performer_label(info: object) -> str | None:
 SUMMARY_COLUMN_ORDER = [
     "file",
     "mode",
+    "mode_performance_text",
     "hostname",
     "layout_used",
     "total_epcs",
@@ -230,6 +232,8 @@ SUMMARY_COLUMN_ORDER = [
     "top_performer",
     "average_dwell_seconds",
     "throughput_per_minute",
+    "mode_reads_per_second",
+    "mode_epcs_per_minute",
     "session_throughput",
     "read_continuity_rate",
     "session_duration_seconds",
@@ -341,6 +345,21 @@ def _register_structured_summary(
     record["layout_overall_coverage"] = _clean_float(metrics.get("layout_overall_coverage"))
     record["top_performer"] = _format_top_performer_label(metrics.get("top_performer_antenna"))
 
+    mode_indicator = metrics.get("mode_performance")
+    mode_text = metrics.get("mode_performance_text")
+    if not mode_text and isinstance(mode_indicator, dict):
+        mode_text = mode_indicator.get("description")
+    record["mode_performance_text"] = mode_text
+
+    def _extract_rate(key: str) -> float | None:
+        value = metrics.get(key)
+        if value is None and isinstance(mode_indicator, dict):
+            value = mode_indicator.get(key.replace("mode_", ""))
+        return _clean_float(value)
+
+    record["mode_reads_per_second"] = _extract_rate("mode_reads_per_second")
+    record["mode_epcs_per_minute"] = _extract_rate("mode_epcs_per_minute")
+
     summary_records.append(record)
 
 
@@ -428,6 +447,21 @@ def _register_continuous_summary(
         continuous_details.get("epcs_per_minute_peak_time")
     )
 
+    mode_indicator = continuous_details.get("mode_performance")
+    mode_text = continuous_details.get("mode_performance_text")
+    if not mode_text and isinstance(mode_indicator, dict):
+        mode_text = mode_indicator.get("description")
+    record["mode_performance_text"] = mode_text
+
+    def _extract_rate(key: str) -> float | None:
+        value = continuous_details.get(key)
+        if value is None and isinstance(mode_indicator, dict):
+            value = mode_indicator.get(key.replace("mode_", ""))
+        return _clean_float(value)
+
+    record["mode_reads_per_second"] = _extract_rate("mode_reads_per_second")
+    record["mode_epcs_per_minute"] = _extract_rate("mode_epcs_per_minute")
+
     summary_records.append(record)
 
 
@@ -456,6 +490,10 @@ def _build_overview_table(per_file_df: pd.DataFrame) -> pd.DataFrame:
         agg_spec["avg_dwell_seconds"] = ("average_dwell_seconds", "mean")
     if "throughput_per_minute" in per_file_df.columns:
         agg_spec["avg_throughput_per_minute"] = ("throughput_per_minute", "mean")
+    if "mode_reads_per_second" in per_file_df.columns:
+        agg_spec["avg_mode_reads_per_second"] = ("mode_reads_per_second", "mean")
+    if "mode_epcs_per_minute" in per_file_df.columns:
+        agg_spec["avg_mode_epcs_per_minute"] = ("mode_epcs_per_minute", "mean")
     if "session_throughput" in per_file_df.columns:
         agg_spec["avg_session_throughput"] = ("session_throughput", "mean")
     if "read_continuity_rate" in per_file_df.columns:
@@ -510,6 +548,10 @@ def _build_overview_table(per_file_df: pd.DataFrame) -> pd.DataFrame:
         overall_row["avg_dwell_seconds"] = _clean_float(per_file_df["average_dwell_seconds"].mean())
     if "throughput_per_minute" in per_file_df.columns:
         overall_row["avg_throughput_per_minute"] = _clean_float(per_file_df["throughput_per_minute"].mean())
+    if "mode_reads_per_second" in per_file_df.columns:
+        overall_row["avg_mode_reads_per_second"] = _clean_float(per_file_df["mode_reads_per_second"].mean())
+    if "mode_epcs_per_minute" in per_file_df.columns:
+        overall_row["avg_mode_epcs_per_minute"] = _clean_float(per_file_df["mode_epcs_per_minute"].mean())
     if "session_throughput" in per_file_df.columns:
         overall_row["avg_session_throughput"] = _clean_float(per_file_df["session_throughput"].mean())
     if "read_continuity_rate" in per_file_df.columns:
@@ -575,6 +617,8 @@ def generate_consolidated_summary(
         "rssi_stability_index",
         "average_dwell_seconds",
         "throughput_per_minute",
+        "mode_reads_per_second",
+        "mode_epcs_per_minute",
         "session_throughput",
         "read_continuity_rate",
         "session_duration_seconds",
@@ -696,6 +740,15 @@ def process_file(
         expected_suffixes=expected_suffixes,
         positions_df=positions_df,
     )
+
+    mode_performance = calculate_mode_performance(metadata, summary, df)
+    if mode_performance.get("mode_index") is not None or mode_performance.get("description"):
+        structured_metrics["mode_performance"] = mode_performance
+        structured_metrics["mode_performance_text"] = mode_performance.get("description")
+        structured_metrics["mode_reads_per_second"] = mode_performance.get("reads_per_second")
+        structured_metrics["mode_reads_per_minute"] = mode_performance.get("reads_per_minute")
+        structured_metrics["mode_epcs_per_minute"] = mode_performance.get("epcs_per_minute")
+        structured_metrics["mode_observation_seconds"] = mode_performance.get("observation_seconds")
 
     summary_text = compose_summary_text(
         csv_path,
@@ -870,6 +923,16 @@ def process_continuous_file(
             "rssi_noise_reads_per_epc": result.rssi_noise_reads_per_epc,
         }
     )
+
+    mode_performance = calculate_mode_performance(metadata, summary, df)
+    if mode_performance.get("mode_index") is not None or mode_performance.get("description"):
+        continuous_details["mode_performance"] = mode_performance
+        continuous_details["mode_performance_text"] = mode_performance.get("description")
+        continuous_details["mode_reads_per_second"] = mode_performance.get("reads_per_second")
+        continuous_details["mode_reads_per_minute"] = mode_performance.get("reads_per_minute")
+        continuous_details["mode_epcs_per_minute"] = mode_performance.get("epcs_per_minute")
+        continuous_details["mode_observation_seconds"] = mode_performance.get("observation_seconds")
+
     if peak_value is not None:
         continuous_details["epcs_per_minute_peak"] = peak_value
     if peak_time is not None:

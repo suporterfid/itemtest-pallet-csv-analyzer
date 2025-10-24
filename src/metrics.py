@@ -207,6 +207,171 @@ def compile_global_rssi_metrics(
     }
 
 
+def calculate_mode_performance(
+    metadata: dict[str, object] | None,
+    summary_df: pd.DataFrame | None,
+    raw_df: pd.DataFrame | None,
+) -> dict[str, object]:
+    """Return reading-rate indicators associated with the ItemTest ``ModeIndex``.
+
+    The helper inspects the ``ModeIndex`` entry from ``metadata`` and estimates the
+    observation window using the earliest and latest timestamps available from the
+    raw reads (or, as a fallback, from the aggregated per-EPC summary). It then
+    derives read throughput metrics such as ``reads_per_second`` and
+    ``epcs_per_minute``. When the ``ModeIndex`` metadata is absent the function
+    returns an empty indicator while keeping the output structure predictable.
+
+    Parameters
+    ----------
+    metadata:
+        Dictionary returned by :func:`parser.read_itemtest_csv` containing the
+        ItemTest metadata comment headers.
+    summary_df:
+        Optional per-EPC aggregation produced by :func:`summarize_by_epc`.
+    raw_df:
+        Raw ItemTest reads as returned by :func:`parser.read_itemtest_csv`.
+
+    Returns
+    -------
+    dict[str, object]
+        Dictionary containing the normalised ``mode_index`` value along with the
+        computed rates and a human-readable ``description`` ready to be surfaced
+        in reports.
+    """
+
+    result: dict[str, object] = {
+        "mode_index": None,
+        "reads_per_second": None,
+        "reads_per_minute": None,
+        "epcs_per_minute": None,
+        "observation_seconds": None,
+        "description": None,
+    }
+
+    if not metadata or not isinstance(metadata, dict):
+        return result
+
+    raw_mode = metadata.get("ModeIndex")
+    if raw_mode is None:
+        return result
+    try:
+        if pd.isna(raw_mode):
+            return result
+    except Exception:  # pragma: no cover - defensive fallback
+        pass
+
+    try:
+        mode_index: int | str = int(raw_mode)
+    except (TypeError, ValueError):
+        mode_index = raw_mode
+
+    try:
+        if pd.isna(mode_index):
+            return result
+    except Exception:  # pragma: no cover - defensive fallback
+        pass
+
+    result["mode_index"] = mode_index
+
+    total_reads: float | None = None
+    if raw_df is not None and not raw_df.empty:
+        total_reads = float(raw_df.shape[0])
+    elif summary_df is not None and not summary_df.empty:
+        if "total_reads" in summary_df.columns:
+            total_reads = float(
+                pd.to_numeric(summary_df["total_reads"], errors="coerce").sum()
+            )
+        else:
+            total_reads = float(summary_df.shape[0])
+
+    unique_epcs: float | None = None
+    if summary_df is not None and not summary_df.empty:
+        if "EPC" in summary_df.columns:
+            try:
+                unique_epcs = float(summary_df["EPC"].nunique())
+            except Exception:  # pragma: no cover - defensive fallback
+                unique_epcs = float(summary_df.shape[0])
+        else:
+            unique_epcs = float(summary_df.shape[0])
+    elif raw_df is not None and not raw_df.empty and "EPC" in raw_df.columns:
+        try:
+            unique_epcs = float(raw_df["EPC"].nunique())
+        except Exception:  # pragma: no cover - defensive fallback
+            unique_epcs = None
+
+    start_time = None
+    end_time = None
+    if raw_df is not None and not raw_df.empty and "Timestamp" in raw_df.columns:
+        ts_series = pd.to_datetime(raw_df["Timestamp"], errors="coerce").dropna()
+        if not ts_series.empty:
+            start_time = ts_series.min()
+            end_time = ts_series.max()
+
+    if (start_time is None or end_time is None) and summary_df is not None and not summary_df.empty:
+        if "first_time" in summary_df.columns:
+            first_series = pd.to_datetime(summary_df["first_time"], errors="coerce").dropna()
+            if not first_series.empty:
+                candidate = first_series.min()
+                start_time = candidate if start_time is None else min(start_time, candidate)
+        if "last_time" in summary_df.columns:
+            last_series = pd.to_datetime(summary_df["last_time"], errors="coerce").dropna()
+            if not last_series.empty:
+                candidate = last_series.max()
+                end_time = candidate if end_time is None else max(end_time, candidate)
+
+    duration_seconds: float | None = None
+    if start_time is not None and end_time is not None:
+        try:
+            delta = pd.to_datetime(end_time) - pd.to_datetime(start_time)
+            seconds = float(delta.total_seconds())
+        except Exception:  # pragma: no cover - defensive fallback
+            seconds = None
+        if seconds is not None and seconds > 0:
+            duration_seconds = seconds
+
+    if duration_seconds is None:
+        result["observation_seconds"] = None
+    else:
+        result["observation_seconds"] = duration_seconds
+
+    reads_per_second: float | None = None
+    if duration_seconds is not None and total_reads is not None:
+        reads_per_second = total_reads / duration_seconds if duration_seconds > 0 else None
+        if reads_per_second is not None:
+            result["reads_per_second"] = reads_per_second
+            result["reads_per_minute"] = reads_per_second * 60.0
+
+    epcs_per_minute: float | None = None
+    if duration_seconds is not None and duration_seconds > 0 and unique_epcs is not None:
+        minutes = duration_seconds / 60.0
+        if minutes > 0:
+            epcs_per_minute = unique_epcs / minutes
+            result["epcs_per_minute"] = epcs_per_minute
+
+    description_parts: list[str] = []
+    if mode_index is not None and str(mode_index) != "":
+        description_parts.append(f"ModeIndex {mode_index}")
+
+    rate_segments: list[str] = []
+    rps_value = result.get("reads_per_second")
+    if rps_value is not None:
+        rate_segments.append(f"{float(rps_value):.2f} leituras/s")
+    rpm_value = result.get("reads_per_minute")
+    if rpm_value is not None:
+        rate_segments.append(f"{float(rpm_value):.2f} leituras/min")
+    epm_value = result.get("epcs_per_minute")
+    if epm_value is not None:
+        rate_segments.append(f"{float(epm_value):.2f} EPCs/min")
+
+    if rate_segments:
+        prefix = description_parts[0] if description_parts else "Indicador de modo"
+        result["description"] = f"{prefix} — {', '.join(rate_segments)}"
+    elif description_parts:
+        result["description"] = description_parts[0]
+
+    return result
+
+
 def _normalise_expected_sets(
     expected_full: Collection[str] | None,
     expected_suffixes: Collection[str] | None,
@@ -717,6 +882,7 @@ __all__ = [
     "calculate_global_rssi_average",
     "calculate_global_rssi_std",
     "compile_global_rssi_metrics",
+    "calculate_mode_performance",
     "calculate_layout_face_coverage",
     "calculate_layout_row_coverage",
     "detect_read_hotspots",

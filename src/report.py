@@ -283,6 +283,40 @@ def write_excel(
             performer_label += f", {int(reads_value)} reads"
         return performer_label
 
+    def _format_mode_indicator(source: dict | None) -> str | None:
+        if not isinstance(source, dict):
+            return None
+        description = source.get("mode_performance_text")
+        if description:
+            return str(description)
+        indicator = source.get("mode_performance")
+        if isinstance(indicator, dict):
+            description = indicator.get("description")
+            if description:
+                return str(description)
+            label_parts: list[str] = []
+            mode_value = indicator.get("mode_index")
+            if mode_value is not None and not (
+                isinstance(mode_value, float) and pd.isna(mode_value)
+            ):
+                label_parts.append(f"ModeIndex {mode_value}")
+            rate_segments: list[str] = []
+            reads_per_second = indicator.get("reads_per_second")
+            if reads_per_second is not None and not pd.isna(reads_per_second):
+                rate_segments.append(f"{float(reads_per_second):.2f} leituras/s")
+            reads_per_minute = indicator.get("reads_per_minute")
+            if reads_per_minute is not None and not pd.isna(reads_per_minute):
+                rate_segments.append(f"{float(reads_per_minute):.2f} leituras/min")
+            epcs_per_minute = indicator.get("epcs_per_minute")
+            if epcs_per_minute is not None and not pd.isna(epcs_per_minute):
+                rate_segments.append(f"{float(epcs_per_minute):.2f} EPCs/min")
+            if rate_segments:
+                prefix = label_parts[0] if label_parts else "Indicador de modo"
+                return f"{prefix} — {', '.join(rate_segments)}"
+            if label_parts:
+                return label_parts[0]
+        return None
+
     total_epcs: int | None = None
     if "EPC" in summary_epc.columns:
         try:
@@ -300,6 +334,14 @@ def write_excel(
             _append_executive("Total reads", total_reads_val, lambda value: int(value))
         except Exception:
             pass
+
+    mode_indicator_structured = _format_mode_indicator(structured_info)
+    mode_indicator_continuous = _format_mode_indicator(metrics_info)
+    mode_indicator_combined = mode_indicator_continuous or mode_indicator_structured
+    if mode_indicator_combined:
+        executive_rows.append(
+            {"Indicator": "Mode performance", "Value": mode_indicator_combined}
+        )
 
     _append_executive(
         "Average dwell time (s)",
@@ -476,6 +518,12 @@ def write_excel(
     location_errors_df: pd.DataFrame | None = None
     reads_by_face_df: pd.DataFrame | None = None
     if structured_info:
+        mode_indicator_structured = _format_mode_indicator(structured_info)
+        if mode_indicator_structured:
+            structured_rows.append(
+                {"Metric": "Mode performance", "Value": mode_indicator_structured}
+            )
+
         coverage = structured_info.get("coverage_rate")
         expected_total = structured_info.get("expected_total")
         expected_found = structured_info.get("expected_found")
@@ -894,6 +942,11 @@ def write_excel(
                 )
 
         metrics_rows: list[dict[str, object]] = []
+        mode_indicator_continuous = _format_mode_indicator(metrics_info)
+        if mode_indicator_continuous:
+            metrics_rows.append(
+                {"Metric": "Mode performance", "Value": mode_indicator_continuous}
+            )
         _append_metric(
             "Average dwell time (s)",
             metrics_info.get("average_dwell_seconds"),
