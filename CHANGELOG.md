@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### ✨ Features
+- Documented the logistics KPI suite (throughput, dwell, congestion, dock cycle
+  insights) and refreshed `SPEC.md`/`GUIDE_METRICS.md`, aligning executive
+  output formats and consolidated summaries so reporting reflects the updated
+  metric definitions.
 - Added a structured-mode pallet heatmap that pivots layout rows/faces into a
   density map saved as `pallet_heatmap.png` alongside existing charts.
 - Added an RSSI vs Frequency scatter plot that is generated for structured and
