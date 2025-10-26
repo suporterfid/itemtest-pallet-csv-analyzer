@@ -24,7 +24,7 @@
 | 18 | Align Excel workbook sheet naming with executive KPIs | ✅ Done | AI Agent | Tabs renamed to mandated Portuguese titles and executive dashboard merges structured/continuous metrics |
 | 19 | Expand continuous-mode KPIs (dwell max, idle gaps, congestion) | ✅ Done | AI Agent | Session throughput, inactivity detection, congestion index, and global RSSI propagated to reports/summary |
 | 20 | Consolidate global RSSI KPIs and noise detector | ✅ Done | AI Agent | Funções compartilhadas calculam média/desvio, indicador de ruído e agora exportam leituras/EPC para planilhas, sumários e modo contínuo |
-| 21 | Implement eight requested KPIs across SPEC, GUIDE, and reports | 🔥 High | AI Agent / Developer | LogisticsReadRate331A and MissedLogisticsEPCs implemented; confirm remaining KPIs align across SPEC/guide/report with regression coverage |
+| 21 | Implement eight requested KPIs across SPEC, GUIDE, and reports | 🔥 High | AI Agent / Developer | LogisticsReadRate331A e MissedLogisticsEPCs implementados; rótulo ajustado para "Tiempo promedio de lectura por tote" e seguir validando alinhamento das demais métricas com SPEC/guide/report |
 | 22 | Update reporting templates for new KPI set | ⚡ Medium | Developer | Refresh Excel/summary templates so new KPIs display in Indicadores_Executivos and structured KPI tabs |
 | 23 | Validate EPC header 331A handling in parser/export | ⚡ Medium | Developer | Confirm parser normalizes 331A headers and reports surface EPC fields without data loss |
 | 24 | Add throughput per minute visualization to continuous mode | ✅ Done | AI Agent | Throughput series now feeds `throughput_per_minute.png` and summary metrics |

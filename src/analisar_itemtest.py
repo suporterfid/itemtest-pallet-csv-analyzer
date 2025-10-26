@@ -607,7 +607,7 @@ def compose_summary_text(
     cycle_time = logistics_info.get("tote_cycle_time_seconds")
     if cycle_time is not None and not pd.isna(cycle_time):
         logistics_lines.append(
-            f"- Tiempo promedio de leitura por tote: {float(cycle_time):.2f} s"
+            f"- Tiempo promedio de lectura por tote: {float(cycle_time):.2f} s"
         )
     duplicate_rate = logistics_info.get("duplicate_reads_per_tote")
     if duplicate_rate is not None and not pd.isna(duplicate_rate):
