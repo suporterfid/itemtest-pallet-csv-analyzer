@@ -16,7 +16,7 @@ CANONICAL_KPI_ORDER: tuple[str, ...] = (
     "LogisticsReadRate331A",
     "MissedLogisticsEPCs",
     "Tasa promedio de lectura por intento",
-    "Tiempo promedio de leitura por tote",
+    "Tiempo promedio de lectura por tote",
     "Tasa de fallas de leitura",
     "Tasa de lecturas duplicadas",
     "Cobertura del área de leitura",
@@ -472,7 +472,7 @@ class _ExecutiveCollector:
             "Tasa promedio de lectura por intento", result, interpretation
         )
 
-    def _handle_Tiempo_promedio_de_leitura_por_tote(self) -> None:
+    def _handle_Tiempo_promedio_de_lectura_por_tote(self) -> None:
         value = self.logistics_info.get("tote_cycle_time_seconds")
         result = _format_seconds(value) if value is not None and not _is_missing(value) else None
         if value is None or _is_missing(value):
@@ -487,7 +487,7 @@ class _ExecutiveCollector:
                 qualifier = "fluxo lento"
             interpretation = f"Tempo médio por tote indica {qualifier} ({numeric:.2f} s)."
         self._append_executive(
-            "Tiempo promedio de leitura por tote", result, interpretation
+            "Tiempo promedio de lectura por tote", result, interpretation
         )
 
     def _handle_Tasa_de_fallas_de_leitura(self) -> None:

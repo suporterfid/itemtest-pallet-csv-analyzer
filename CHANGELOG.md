@@ -43,6 +43,7 @@
 - Surfaced missed logistics EPC lists and read-rate context in consolidated summaries to aid troubleshooting of tote coverage gaps.
 
 ### 🐞 Fixes
+- Corrigido o rótulo do KPI logístico para usar "Tiempo promedio de lectura por tote" em toda a aplicação, evitando divergências entre planilhas, sumários e especificações.
 - Corrigido o bootstrap do CLI para aceitar tanto `python src/itemtest_analyzer.py` quanto `python -m src.itemtest_analyzer`, mantendo a compatibilidade com o `run.bat` no Windows.
 - Ajustado o parser de CSV para detectar automaticamente delimitadores (`;`) e decimais com vírgula, preservando EPCs e métricas numéricas ao importar testes do ItemTest.
 
